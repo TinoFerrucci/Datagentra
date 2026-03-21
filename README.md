@@ -56,22 +56,42 @@ chmod +x setup.sh
 ```
 
 El script `setup.sh` hace todo automáticamente:
-1. Te pregunta el proveedor LLM y credenciales
-2. Crea la base de datos SQLite con datos de e-commerce de muestra
-3. Instala dependencias del frontend
-4. **Levanta el backend y el frontend** (Ctrl+C para detener ambos)
+1. Crea la base de datos SQLite con datos de e-commerce de muestra
+2. Instala dependencias del frontend
+3. **Levanta el backend y el frontend** (Ctrl+C para detener ambos)
 
-Una vez corriendo, abrí **http://localhost:5173**.
+Una vez corriendo, abrí **http://localhost:5173** — el wizard de configuración aparece automáticamente la primera vez.
 
 ## Lo que pregunta el setup
 
 | Pregunta | Default |
 |---|---|
-| Proveedor LLM (OpenAI / Ollama) | OpenAI |
-| API Key (si OpenAI) | — |
-| Modelo | `gpt-4o-mini` / `qwen2.5:7b` |
 | Tamaño máximo de archivos (MB) | 50 |
 | URL del backend | http://localhost:8000 |
+
+> La configuración del proveedor LLM (OpenAI o Ollama) se hace directamente desde la UI al iniciar por primera vez.
+
+## Configuración inicial (wizard)
+
+Al abrir la app por primera vez, un wizard guía la configuración del proveedor LLM:
+
+### OpenAI
+1. Seleccioná **OpenAI**
+2. Ingresá tu API Key (`sk-...`)
+3. Clic en **Validate key & list models** — el wizard valida la key contra la API real de OpenAI y lista los modelos disponibles en tu cuenta
+4. Elegí el modelo y guardá
+
+### Ollama (local)
+1. Seleccioná **Ollama**
+2. El wizard detecta automáticamente los modelos instalados en `localhost:11434`
+3. Elegí el modelo y guardá
+
+Una vez configurado, podés cambiar proveedor o modelo en cualquier momento desde el ícono ⚙️ en la barra lateral.
+
+### Cambiar configuración (SettingsModal)
+- Abrí con el ícono ⚙️ (esquina inferior izquierda del sidebar)
+- Si ya tenés OpenAI configurado: la lista de modelos se carga automáticamente con la key guardada, sin necesidad de re-ingresarla
+- Dejá el campo API Key vacío para mantener la key actual; completalo solo si querés cambiarla
 
 ## Conversaciones
 

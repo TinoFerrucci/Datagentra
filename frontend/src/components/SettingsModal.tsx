@@ -46,9 +46,36 @@ export function SettingsModal({ current, onSave, onClose }: SettingsModalProps) 
   const [saved, setSaved] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
+  // Auto-load models when already configured with OpenAI
   useEffect(() => {
+    if (provider === 'openai' && current?.provider === 'openai' && openaiModels === null && !apiKey.trim()) {
+      fetchCurrentModels()
+    }
     if (provider === 'ollama') checkOllama()
   }, [provider])
+
+  const fetchCurrentModels = async () => {
+    setValidating(true)
+    setKeyError(null)
+    try {
+      const res = await fetch(`${API_URL}/api/openai/models/current`)
+      const data = await res.json()
+      if (!res.ok) {
+        setKeyError(data.detail || 'Could not load models.')
+        return
+      }
+      const list: OpenAIModel[] = data.models || []
+      setOpenaiModels(list)
+      // Keep the currently selected model if it's in the list
+      if (!list.find(m => m.id === selectedOpenaiModel) && list.length > 0) {
+        setSelectedOpenaiModel(list[0].id)
+      }
+    } catch {
+      setKeyError('Could not reach the server.')
+    } finally {
+      setValidating(false)
+    }
+  }
 
   const checkOllama = async () => {
     setCheckingOllama(true)
@@ -99,6 +126,10 @@ export function SettingsModal({ current, onSave, onClose }: SettingsModalProps) 
       setOpenaiModels(null)
       setKeyError(null)
     }
+    // If user clears the field while already configured, reload current models
+    if (!v.trim() && current?.provider === 'openai') {
+      fetchCurrentModels()
+    }
   }
 
   const handleSave = async () => {
@@ -106,8 +137,8 @@ export function SettingsModal({ current, onSave, onClose }: SettingsModalProps) 
     setError(null)
     try {
       if (provider === 'openai') {
-        // If user validated a new key, use it. Otherwise keep current.
-        const key = openaiModels !== null ? apiKey.trim() : undefined
+        // Only send the key if the user explicitly entered and validated a new one
+        const key = apiKey.trim() || undefined
         await onSave(provider, selectedOpenaiModel, key)
       } else {
         await onSave(provider, selectedOllamaModel)
@@ -128,9 +159,7 @@ export function SettingsModal({ current, onSave, onClose }: SettingsModalProps) 
   // - Ollama: running AND model selected
   const canSave =
     provider === 'openai'
-      ? !!selectedOpenaiModel && (
-          (current?.provider === 'openai' && openaiModels === null) || openaiModels !== null
-        )
+      ? !!selectedOpenaiModel && openaiModels !== null
       : ollamaRunning === true && !!selectedOllamaModel
 
   return (
@@ -182,15 +211,6 @@ export function SettingsModal({ current, onSave, onClose }: SettingsModalProps) 
           {/* ── OpenAI config ── */}
           {provider === 'openai' && (
             <div className="space-y-4">
-              {/* Current model badge (when already configured & no new key entered) */}
-              {current?.provider === 'openai' && openaiModels === null && (
-                <div className="flex items-center gap-2 rounded-xl bg-muted px-4 py-3 text-sm">
-                  <CheckCircle2 className="w-4 h-4 text-green-600" />
-                  <span className="text-muted-foreground">Currently using</span>
-                  <span className="font-mono font-medium">{current.model}</span>
-                </div>
-              )}
-
               {/* API Key input */}
               <div className="space-y-2">
                 <label className="text-sm font-medium">
@@ -237,19 +257,24 @@ export function SettingsModal({ current, onSave, onClose }: SettingsModalProps) 
                 </button>
               )}
 
-              {/* Model list — after validation OR when already configured */}
-              {(openaiModels !== null || (current?.provider === 'openai' && !apiKey.trim())) && (
+              {/* Model list — auto-loaded from stored key or after validating new key */}
+              {validating && openaiModels === null && !keyError && (
+                <div className="flex items-center gap-2 text-sm text-muted-foreground px-1">
+                  <Loader2 className="w-4 h-4 animate-spin" /> Loading models...
+                </div>
+              )}
+              {openaiModels !== null && (
                 <div className="space-y-2">
                   <div className="flex items-center justify-between">
                     <label className="text-sm font-medium">Model</label>
-                    {openaiModels !== null && (
+                    {apiKey.trim() && (
                       <span className="text-xs text-green-600 dark:text-green-400 font-medium flex items-center gap-1">
                         <CheckCircle2 className="w-3.5 h-3.5" /> Key validated
                       </span>
                     )}
                   </div>
                   <div className="space-y-1.5 max-h-44 overflow-y-auto pr-1">
-                    {(openaiModels ?? [{ id: current!.model, name: current!.model }]).map((m) => (
+                    {openaiModels.map((m) => (
                       <button
                         key={m.id}
                         onClick={() => setSelectedOpenaiModel(m.id)}

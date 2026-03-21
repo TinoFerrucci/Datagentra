@@ -366,6 +366,38 @@ async def get_ollama_models():
         return {"running": False, "models": [], "base_url": base_url}
 
 
+@app.get("/api/openai/models/current")
+async def get_openai_models_current():
+    """Return the available GPT models using the already-configured OPENAI_API_KEY."""
+    import httpx
+    api_key = os.getenv("OPENAI_API_KEY", "")
+    if not api_key or api_key in ("", "sk-your-key-here"):
+        raise HTTPException(status_code=404, detail="No OpenAI API key configured.")
+    try:
+        async with httpx.AsyncClient() as client:
+            resp = await client.get(
+                "https://api.openai.com/v1/models",
+                headers={"Authorization": f"Bearer {api_key}"},
+                timeout=10.0,
+            )
+            if resp.status_code == 401:
+                raise HTTPException(status_code=401, detail="Stored API key is invalid.")
+            resp.raise_for_status()
+            data = resp.json()
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"Could not reach OpenAI: {exc}")
+
+    models = [
+        {"id": m["id"], "name": m["id"]}
+        for m in data.get("data", [])
+        if m["id"].startswith("gpt-")
+        and not any(m["id"].startswith(p) for p in _OPENAI_MODEL_EXCLUDE_PREFIXES)
+    ]
+    return {"valid": True, "models": _sort_openai_models(models)}
+
+
 class OpenAIValidateRequest(BaseModel):
     api_key: str
 
