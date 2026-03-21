@@ -1,6 +1,16 @@
 # Datagentra — Analista de Datos Autónomo
 
-Convierte preguntas en lenguaje natural en SQL, gráficos y conclusiones. 100% local con Ollama o en la nube con OpenAI.
+Convierte preguntas en lenguaje natural en SQL, gráficos y conclusiones. 100% local con Ollama o en la nube con OpenAI. Sin Docker para la base de datos — todo corre localmente con SQLite.
+
+## Características
+
+- **Text-to-SQL** — genera SQL a partir de lenguaje natural, con hasta 2 reintentos automáticos en caso de error
+- **Historial de conversaciones** — cada conversación se guarda localmente en SQLite; podés crear, cambiar, renombrar y eliminar conversaciones desde el sidebar
+- **Gráficos automáticos** — bar, line, area, pie o KPI según el tipo de datos
+- **Carga de archivos** — sube CSV o SQLite y consultá directamente tus propios datos
+- **Correcciones en lenguaje natural** — describí cómo modificar columnas del CSV antes de confirmar el source
+- **Proveedor LLM configurable** — OpenAI (cloud) u Ollama (local, sin costo)
+- **Schema explorer** — navegación visual del esquema activo en el panel derecho
 
 ## Arquitectura
 
@@ -13,112 +23,88 @@ Convierte preguntas en lenguaje natural en SQL, gráficos y conclusiones. 100% l
                            │ HTTP (CORS)
                            ▼
 ┌─────────────────────────────────────────────────────────────┐
-│                    FastAPI Backend                          │
-│   :8000                                                     │
-│   ┌─────────────┐  ┌──────────────┐  ┌───────────────────┐ │
-│   │  agent.py   │  │ data_loader  │  │   llm_provider    │ │
-│   │ Text→SQL    │  │ CSV / SQLite │  │ Ollama | OpenAI   │ │
-│   └──────┬──────┘  └──────────────┘  └─────────┬─────────┘ │
-│          │                                      │           │
-└──────────┼──────────────────────────────────────┼───────────┘
-           │                                      │
-           ▼                                      ▼
-┌────────────────────┐              ┌─────────────────────────┐
-│   PostgreSQL :5432 │              │   Ollama :11434         │
-│   E-commerce data  │              │   qwen2.5:7b (local)   │
-└────────────────────┘              └─────────────────────────┘
+│                    FastAPI Backend :8000                     │
+│   ┌────────────┐ ┌─────────────┐ ┌──────────────────────┐   │
+│   │  agent.py  │ │data_loader  │ │  conversations.py    │   │
+│   │ Text→SQL   │ │CSV / SQLite │ │  Historial en SQLite │   │
+│   └─────┬──────┘ └─────────────┘ └──────────────────────┘   │
+│         │                   llm_provider.py                  │
+└─────────┼───────────────────────┬─────────────────────────────┘
+          │                       │
+          ▼                       ▼
+┌──────────────────────┐  ┌────────────────────────┐
+│ db/datagentra.db     │  │  OpenAI API  /          │
+│ E-commerce SQLite    │  │  Ollama :11434 (local)  │
+│ db/conversations.db  │  └────────────────────────┘
+│ Historial de chats   │
+└──────────────────────┘
 ```
 
 ## Requisitos Previos
 
-- Docker y Docker Compose v2
-- (Opcional) Python 3.12+ y `uv` para desarrollo local
-- (Opcional) Node.js 20+ para desarrollo local del frontend
-- (Opcional) API Key de OpenAI para modo cloud
+- Python 3.12+ y `uv` (`curl -LsSf https://astral.sh/uv/install.sh | sh`)
+- Node.js 20+
+- OpenAI API Key **o** Ollama instalado localmente
 
-## Inicio Rápido — Setup Automático (recomendado)
-
-El script `setup.sh` configura los `.env` interactivamente y al terminar muestra exactamente qué comandos ejecutar. Si no ingresás nada, usa los valores por defecto.
+## Inicio Rápido
 
 ```bash
-# 1. Clonar el repo
 git clone <repo-url>
 cd Datagentra
-
-# 2. Ejecutar el wizard
 chmod +x setup.sh
 ./setup.sh
 ```
 
-El script te preguntará:
-- **Proveedor LLM** — Ollama (local) u OpenAI (cloud)
-- **Modelo** — por defecto `qwen2.5:7b` para Ollama o `gpt-4o-mini` para OpenAI
-- **Credenciales de base de datos** — usuario, contraseña y nombre de BD (todos con defaults)
+El script `setup.sh` hace todo automáticamente:
+1. Te pregunta el proveedor LLM y credenciales
+2. Crea la base de datos SQLite con datos de e-commerce de muestra
+3. Instala dependencias del frontend
+4. **Levanta el backend y el frontend** (Ctrl+C para detener ambos)
 
-Al finalizar genera `backend/.env` y `frontend/.env` y muestra la guía de inicio paso a paso según tu configuración.
+Una vez corriendo, abrí **http://localhost:5173**.
 
-### Guía de inicio post-setup (Ollama)
+## Lo que pregunta el setup
 
-```bash
-# 1. Dar permisos de Docker a tu usuario (solo la primera vez)
-sudo usermod -aG docker $USER
-newgrp docker
+| Pregunta | Default |
+|---|---|
+| Proveedor LLM (OpenAI / Ollama) | OpenAI |
+| API Key (si OpenAI) | — |
+| Modelo | `gpt-4o-mini` / `qwen2.5:7b` |
+| Tamaño máximo de archivos (MB) | 50 |
+| URL del backend | http://localhost:8000 |
 
-# 2. Levantar servicios (construye imágenes la primera vez)
-docker compose --profile ollama up --build
+## Conversaciones
 
-# 3. Descargar el modelo (~4GB, solo la primera vez)
-docker compose --profile ollama run --rm ollama-pull
+Cada vez que hacés una pregunta, el backend guarda automáticamente:
+- El mensaje del usuario
+- La respuesta completa del agente (SQL, datos, resumen, config de gráfico)
 
-# 4. Abrir http://localhost:5173
-```
+Todo se persiste en `db/conversations.db` (SQLite local).
 
-### Guía de inicio post-setup (OpenAI)
+### Funciones desde la UI
 
-```bash
-sudo usermod -aG docker $USER && newgrp docker
-docker compose up --build
-# Abrir http://localhost:5173
-```
-
-## Inicio Rápido — Manual
-
-### Opción Ollama (local, sin costo)
-
-```bash
-cp backend/.env.example backend/.env
-cp frontend/.env.example frontend/.env
-
-docker compose --profile ollama up --build
-docker compose --profile ollama run --rm ollama-pull  # primera vez
-
-# http://localhost:5173
-```
-
-### Opción OpenAI (cloud)
-
-```bash
-cp backend/.env.example backend/.env
-# Editar backend/.env: LLM_PROVIDER=openai, OPENAI_API_KEY=sk-...
-cp frontend/.env.example frontend/.env
-
-docker compose up --build
-# http://localhost:5173
-```
+| Acción | Cómo |
+|---|---|
+| Nueva conversación | Botón `+` en el sidebar o `Nueva` en el header |
+| Cambiar conversación | Clic en el nombre en el sidebar |
+| Renombrar | Doble clic sobre el nombre, o ícono ✏️ |
+| Eliminar | Ícono 🗑️ al hacer hover |
+| Título automático | Se asigna desde la primera pregunta |
 
 ## Variables de Entorno
 
 ### `backend/.env`
 
-| Variable | Descripción | Valores | Default |
-|---|---|---|---|
-| `DATABASE_URL` | URL de conexión a PostgreSQL | postgresql://... | postgresql://datagentra:datagentra_pass@db:5432/datagentra |
-| `LLM_PROVIDER` | Proveedor LLM | `ollama` / `openai` | `ollama` |
-| `OLLAMA_BASE_URL` | URL del servidor Ollama | http://... | http://ollama:11434 |
-| `OLLAMA_MODEL` | Modelo Ollama | qwen2.5:7b, llama3.2, etc. | `qwen2.5:7b` |
-| `OPENAI_API_KEY` | API Key de OpenAI | sk-... | (vacío) |
-| `OPENAI_MODEL` | Modelo OpenAI | gpt-4o, gpt-4o-mini | `gpt-4o-mini` |
-| `MAX_UPLOAD_SIZE_MB` | Tamaño máximo de archivos | número | `50` |
+| Variable | Descripción | Default |
+|---|---|---|
+| `SQLITE_DB_PATH` | Path a la base de datos e-commerce | `../db/datagentra.db` |
+| `CONVERSATIONS_DB_PATH` | Path al historial de conversaciones | `../db/conversations.db` |
+| `LLM_PROVIDER` | Proveedor LLM | `openai` |
+| `OPENAI_API_KEY` | API Key de OpenAI | — |
+| `OPENAI_MODEL` | Modelo OpenAI | `gpt-4o-mini` |
+| `OLLAMA_BASE_URL` | URL del servidor Ollama | `http://localhost:11434` |
+| `OLLAMA_MODEL` | Modelo Ollama | `qwen2.5:7b` |
+| `MAX_UPLOAD_SIZE_MB` | Tamaño máximo de archivos | `50` |
 
 ### `frontend/.env`
 
@@ -126,64 +112,97 @@ docker compose up --build
 |---|---|---|
 | `VITE_API_URL` | URL del backend | `http://localhost:8000` |
 
-## Modos de LLM
-
-### Ollama (Local, sin costo)
-
-Modelos recomendados:
-- `qwen2.5:7b` — Buen balance velocidad/calidad para SQL
-- `llama3.2:3b` — Más rápido, menor calidad
-- `codellama:7b` — Especializado en código/SQL
-
-### OpenAI (Cloud)
-
-Modelos recomendados:
-- `gpt-4o-mini` — Económico, excelente para SQL
-- `gpt-4o` — Máxima calidad
-
 ## Ejecutar Tests
 
 ```bash
 cd backend
-pip install uv && uv sync
-
-# Tests unitarios (sin API Key)
-uv run pytest -m "not integration" -v
-
-# Con cobertura
-uv run pytest --cov=app --cov-report=term-missing -v
-
-# Tests de integración (requiere OPENAI_API_KEY en backend/.env)
-uv run pytest -m integration -v
+UV_PROJECT_ENVIRONMENT=.venv_local uv run pytest tests/ -v
 ```
+
+> El `.venv` creado por Docker tiene permisos de root. Usar `UV_PROJECT_ENVIRONMENT=.venv_local` crea un venv propio sin conflictos.
 
 ## Estructura del Proyecto
 
 ```
 Datagentra/
-├── docker-compose.yml
-├── db/init.sql              # Schema + seed E-commerce
+├── setup.sh                    # Wizard de configuración + launcher
+├── docker-compose.yml          # Backend + frontend (opcional)
+├── db/
+│   ├── seed_sqlite.py          # Crea datagentra.db con datos de muestra
+│   ├── datagentra.db           # E-commerce: 40 productos, 50 users, 120 órdenes
+│   └── conversations.db        # Historial de conversaciones (auto-creado)
 ├── backend/
 │   ├── app/
-│   │   ├── main.py          # Endpoints FastAPI
-│   │   ├── agent.py         # Pipeline Text-to-SQL
-│   │   ├── database.py      # Engines + DDL
-│   │   ├── data_loader.py   # CSV/SQLite loader
-│   │   └── llm_provider.py  # Factory Ollama/OpenAI
-│   └── tests/
+│   │   ├── __init__.py         # Carga .env al inicio
+│   │   ├── main.py             # Endpoints FastAPI
+│   │   ├── agent.py            # Pipeline Text-to-SQL
+│   │   ├── database.py         # Engines SQLite + DDL helpers
+│   │   ├── conversations.py    # CRUD historial de conversaciones
+│   │   ├── data_loader.py      # CSV/SQLite loader
+│   │   └── llm_provider.py     # Factory Ollama/OpenAI
+│   └── tests/                  # 47 tests unitarios
 └── frontend/
     └── src/
-        ├── App.tsx
+        ├── App.tsx             # Layout: sidebar conversations + chat + schema
         ├── hooks/useDatagentra.ts
         └── components/
 ```
 
+## Modos de LLM
+
+### OpenAI (recomendado para calidad)
+
+```env
+LLM_PROVIDER=openai
+OPENAI_API_KEY=sk-...
+OPENAI_MODEL=gpt-4o-mini
+```
+
+### Ollama (local, sin costo)
+
+```bash
+# Instalar Ollama
+curl -fsSL https://ollama.com/install.sh | sh
+ollama pull qwen2.5:7b
+```
+
+```env
+LLM_PROVIDER=ollama
+OLLAMA_BASE_URL=http://localhost:11434
+OLLAMA_MODEL=qwen2.5:7b
+```
+
+Modelos recomendados para SQL: `qwen2.5:7b`, `codellama:7b`, `llama3.2:3b`
+
+## Opción Docker (solo app, sin DB externa)
+
+```bash
+docker compose up --build
+```
+
+Levanta backend + frontend en contenedores. La base de datos SQLite se monta desde `./db/`.
+
 ## Solución de Problemas
 
-- **DB no conecta** → `docker compose logs db` / verificar credenciales
-- **Ollama sin modelo** → `docker compose --profile ollama run ollama-pull`
-- **CORS error** → Verificar `VITE_API_URL=http://localhost:8000`
-- **Tests fallan** → Usar `uv run pytest -m "not integration" -v`
+| Problema | Solución |
+|---|---|
+| `model 'X' not found` | El `.env` no se cargó. Reiniciá el backend |
+| `Connection refused` en Ollama | Ollama solo escucha en `127.0.0.1`. Ver abajo |
+| `Permission denied` en `.venv` | Usar `UV_PROJECT_ENVIRONMENT=.venv_local uv run ...` |
+| Tests con CORS | Verificar `VITE_API_URL=http://localhost:8000` |
+
+### Ollama accesible desde Docker
+
+Por defecto Ollama solo escucha en `127.0.0.1:11434`. Para acceso desde contenedores:
+
+```bash
+sudo systemctl edit ollama
+# Agregar:
+# [Service]
+# Environment="OLLAMA_HOST=0.0.0.0"
+
+sudo systemctl daemon-reload && sudo systemctl restart ollama
+```
 
 ## Licencia
 

@@ -31,12 +31,6 @@ ask() {
     printf -v "$varname" '%s' "$input"
 }
 
-ask_secret() {
-    local varname="$1" prompt="$2" input
-    read -rsp "$(echo -e "${CYAN}${prompt}${NC}: ")" input
-    echo
-    printf -v "$varname" '%s' "$input"
-}
 
 banner() {
     echo -e "${BOLD}"
@@ -64,38 +58,6 @@ error()   { echo -e "${RED}✗ $1${NC}" >&2; }
 
 banner
 
-# ── LLM Provider ──────────────────────────────────────────────────────────────
-section "LLM Provider"
-echo "  1) OpenAI  — cloud, requiere API Key (recomendado)"
-echo "  2) Ollama  — local, sin costo"
-echo
-
-ask LLM_CHOICE "Elige proveedor [1/2]" "1"
-
-if [[ "$LLM_CHOICE" == "2" ]]; then
-    LLM_PROVIDER="ollama"
-    ask OLLAMA_MODEL "Modelo Ollama" "qwen2.5:7b"
-    OPENAI_API_KEY=""
-    OPENAI_MODEL="gpt-4o-mini"
-    if curl -sf http://localhost:11434/api/tags &>/dev/null; then
-        OLLAMA_BASE_URL="http://localhost:11434"
-        success "Ollama detectado en http://localhost:11434"
-    else
-        OLLAMA_BASE_URL="http://localhost:11434"
-        warn "No se detectó Ollama corriendo. Asegurate de tenerlo iniciado antes de usar la app."
-    fi
-else
-    LLM_PROVIDER="openai"
-    ask_secret OPENAI_API_KEY "OpenAI API Key (sk-...)"
-    if [[ -z "$OPENAI_API_KEY" ]]; then
-        error "La API Key no puede estar vacía para el modo OpenAI."
-        exit 1
-    fi
-    ask OPENAI_MODEL "Modelo OpenAI" "gpt-4o-mini"
-    OLLAMA_BASE_URL="http://localhost:11434"
-    OLLAMA_MODEL="qwen2.5:7b"
-fi
-
 # ── App config ────────────────────────────────────────────────────────────────
 section "Configuración general"
 ask MAX_UPLOAD_SIZE_MB "Tamaño máximo de archivos subidos (MB)" "50"
@@ -110,16 +72,12 @@ cat > "${SCRIPT_DIR}/backend/.env" <<EOF
 # SQLite database
 SQLITE_DB_PATH=${SQLITE_DB_PATH}
 
-# LLM Provider: openai | ollama
-LLM_PROVIDER=${LLM_PROVIDER}
-
-# OpenAI config (used when LLM_PROVIDER=openai)
-OPENAI_API_KEY=${OPENAI_API_KEY}
-OPENAI_MODEL=${OPENAI_MODEL}
-
-# Ollama config (used when LLM_PROVIDER=ollama)
-OLLAMA_BASE_URL=${OLLAMA_BASE_URL}
-OLLAMA_MODEL=${OLLAMA_MODEL}
+# LLM Provider — configured from the UI on first launch
+LLM_PROVIDER=openai
+OPENAI_API_KEY=
+OPENAI_MODEL=gpt-4o-mini
+OLLAMA_BASE_URL=http://localhost:11434
+OLLAMA_MODEL=qwen2.5:7b
 
 # App config
 MAX_UPLOAD_SIZE_MB=${MAX_UPLOAD_SIZE_MB}
@@ -166,15 +124,10 @@ section "Setup completado"
 
 echo
 echo -e "${BOLD}Configuración guardada:${NC}"
-echo -e "  LLM Provider:  ${YELLOW}${LLM_PROVIDER}${NC}"
-if [[ "$LLM_PROVIDER" == "ollama" ]]; then
-    echo -e "  Modelo:        ${YELLOW}${OLLAMA_MODEL}${NC}"
-else
-    echo -e "  Modelo:        ${YELLOW}${OPENAI_MODEL}${NC}"
-fi
 echo -e "  Base de datos: ${YELLOW}${SQLITE_DB_PATH}${NC}"
 echo -e "  Frontend:      ${YELLOW}http://localhost:5173${NC}"
 echo -e "  Backend:       ${YELLOW}http://localhost:8000${NC}"
+echo -e "  LLM:           ${CYAN}configurable desde la UI al abrir la app${NC}"
 echo
 
 # ── Check dependencies ────────────────────────────────────────────────────────

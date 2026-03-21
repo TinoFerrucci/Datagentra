@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useRef } from 'react'
 import {
   Database,
   Upload,
@@ -7,12 +7,22 @@ import {
   Moon,
   Sun,
   LayoutDashboard,
+  Plus,
+  Trash2,
+  MessageSquare,
+  Pencil,
+  Check,
+  X,
+  Settings,
 } from 'lucide-react'
 import { useDatagentra } from './hooks/useDatagentra'
 import { ChatInterface } from './components/ChatInterface'
 import { SchemaExplorer } from './components/SchemaExplorer'
 import { DataSourcePanel } from './components/DataSourcePanel'
+import { SetupWizard } from './components/SetupWizard'
+import { SettingsModal } from './components/SettingsModal'
 import { cn } from './lib/utils'
+import type { Conversation } from './hooks/useDatagentra'
 
 type RightPanel = 'schema' | 'upload'
 
@@ -20,20 +30,31 @@ export default function App() {
   const [darkMode, setDarkMode] = useState(false)
   const [rightPanel, setRightPanel] = useState<RightPanel>('schema')
   const [rightCollapsed, setRightCollapsed] = useState(false)
+  const [editingConvId, setEditingConvId] = useState<string | null>(null)
+  const [editingTitle, setEditingTitle] = useState('')
+  const [showSettings, setShowSettings] = useState(false)
+  const editInputRef = useRef<HTMLInputElement>(null)
 
   const {
     messages,
     isLoading,
+    ask,
+    conversations,
+    activeConversationId,
+    loadConversation,
+    createConversation,
+    deleteConversation,
+    renameConversation,
     dataSources,
     activeSource,
     schema,
     llmInfo,
-    ask,
+    setupStatus,
+    saveSetup,
     uploadFile,
     fixUpload,
     confirmUpload,
     switchDataSource,
-    clearMessages,
   } = useDatagentra()
 
   const toggleDark = () => {
@@ -45,12 +66,28 @@ export default function App() {
   }
 
   const activeSourceName =
-    dataSources.find((s) => s.id === activeSource?.id)?.name ?? 'PostgreSQL (default)'
+    dataSources.find((s) => s.id === activeSource?.id)?.name ?? 'E-commerce (default)'
+
+  // Inline rename helpers
+  const startEdit = (conv: Conversation) => {
+    setEditingConvId(conv.id)
+    setEditingTitle(conv.title)
+    setTimeout(() => editInputRef.current?.select(), 0)
+  }
+
+  const commitEdit = async () => {
+    if (editingConvId && editingTitle.trim()) {
+      await renameConversation(editingConvId, editingTitle.trim())
+    }
+    setEditingConvId(null)
+  }
+
+  const cancelEdit = () => setEditingConvId(null)
 
   return (
     <div className={cn('flex h-screen bg-background text-foreground overflow-hidden', darkMode && 'dark')}>
       {/* ================================================================
-          LEFT SIDEBAR — Navigation & Data sources
+          LEFT SIDEBAR — Conversations & Data sources
       ================================================================ */}
       <aside className="w-56 border-r flex flex-col bg-card flex-shrink-0">
         {/* Logo */}
@@ -61,46 +98,143 @@ export default function App() {
           <span className="font-bold text-sm">Datagentra</span>
         </div>
 
-        {/* Data sources */}
-        <div className="flex-1 overflow-y-auto px-3 py-4">
-          <p className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider px-1 mb-2">
-            Data Sources
-          </p>
-          <div className="space-y-1">
-            {dataSources.map((source) => (
-              <button
-                key={source.id}
-                onClick={() => switchDataSource(source.id)}
+        {/* Conversations */}
+        <div className="flex flex-col flex-1 min-h-0">
+          <div className="px-3 pt-4 pb-2 flex items-center justify-between flex-shrink-0">
+            <p className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider px-1">
+              Conversaciones
+            </p>
+            <button
+              onClick={createConversation}
+              title="Nueva conversación"
+              className="p-1 rounded-md hover:bg-muted text-muted-foreground hover:text-foreground transition-colors"
+            >
+              <Plus className="w-3.5 h-3.5" />
+            </button>
+          </div>
+
+          <div className="flex-1 overflow-y-auto px-3 pb-2 space-y-0.5">
+            {conversations.length === 0 && (
+              <p className="text-[11px] text-muted-foreground px-2 py-2 italic">
+                Sin conversaciones aún
+              </p>
+            )}
+            {conversations.map((conv) => (
+              <div
+                key={conv.id}
                 className={cn(
-                  'w-full flex items-center gap-2 px-2 py-2 rounded-md text-xs font-medium transition-colors text-left',
-                  source.active
+                  'group relative flex items-center rounded-md text-xs transition-colors cursor-pointer',
+                  conv.id === activeConversationId
                     ? 'bg-indigo-100 dark:bg-indigo-900/40 text-indigo-700 dark:text-indigo-300'
                     : 'text-muted-foreground hover:bg-muted hover:text-foreground'
                 )}
               >
-                <Database className="w-3.5 h-3.5 flex-shrink-0" />
-                <span className="truncate">{source.name}</span>
-                {source.active && (
-                  <span className="ml-auto w-1.5 h-1.5 rounded-full bg-indigo-500 flex-shrink-0" />
+                {editingConvId === conv.id ? (
+                  /* Inline rename input */
+                  <div className="flex items-center gap-1 w-full px-2 py-1.5">
+                    <input
+                      ref={editInputRef}
+                      value={editingTitle}
+                      onChange={(e) => setEditingTitle(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') commitEdit()
+                        if (e.key === 'Escape') cancelEdit()
+                      }}
+                      className="flex-1 min-w-0 bg-transparent border-b border-indigo-400 outline-none text-xs"
+                      autoFocus
+                    />
+                    <button onClick={commitEdit} className="text-green-600 hover:text-green-700">
+                      <Check className="w-3 h-3" />
+                    </button>
+                    <button onClick={cancelEdit} className="text-muted-foreground hover:text-foreground">
+                      <X className="w-3 h-3" />
+                    </button>
+                  </div>
+                ) : (
+                  /* Normal row */
+                  <button
+                    onClick={() => loadConversation(conv.id)}
+                    onDoubleClick={() => startEdit(conv)}
+                    className="flex items-center gap-2 px-2 py-1.5 w-full text-left min-w-0"
+                  >
+                    <MessageSquare className="w-3.5 h-3.5 flex-shrink-0" />
+                    <span className="truncate flex-1">{conv.title}</span>
+                  </button>
                 )}
-              </button>
+
+                {/* Hover actions */}
+                {editingConvId !== conv.id && (
+                  <div className="absolute right-1 hidden group-hover:flex items-center gap-0.5 bg-inherit">
+                    <button
+                      onClick={(e) => { e.stopPropagation(); startEdit(conv) }}
+                      title="Renombrar"
+                      className="p-1 rounded hover:bg-muted text-muted-foreground hover:text-foreground"
+                    >
+                      <Pencil className="w-3 h-3" />
+                    </button>
+                    <button
+                      onClick={(e) => { e.stopPropagation(); deleteConversation(conv.id) }}
+                      title="Eliminar"
+                      className="p-1 rounded hover:bg-red-100 dark:hover:bg-red-900/30 text-muted-foreground hover:text-red-600"
+                    >
+                      <Trash2 className="w-3 h-3" />
+                    </button>
+                  </div>
+                )}
+              </div>
             ))}
+          </div>
+
+          {/* Data sources */}
+          <div className="border-t px-3 py-3 flex-shrink-0">
+            <p className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider px-1 mb-2">
+              Data Sources
+            </p>
+            <div className="space-y-0.5">
+              {dataSources.map((source) => (
+                <button
+                  key={source.id}
+                  onClick={() => switchDataSource(source.id)}
+                  className={cn(
+                    'w-full flex items-center gap-2 px-2 py-1.5 rounded-md text-xs font-medium transition-colors text-left',
+                    source.active
+                      ? 'bg-indigo-100 dark:bg-indigo-900/40 text-indigo-700 dark:text-indigo-300'
+                      : 'text-muted-foreground hover:bg-muted hover:text-foreground'
+                  )}
+                >
+                  <Database className="w-3.5 h-3.5 flex-shrink-0" />
+                  <span className="truncate">{source.name}</span>
+                  {source.active && (
+                    <span className="ml-auto w-1.5 h-1.5 rounded-full bg-indigo-500 flex-shrink-0" />
+                  )}
+                </button>
+              ))}
+            </div>
           </div>
         </div>
 
-        {/* Bottom: theme toggle */}
-        <div className="px-4 py-4 border-t flex items-center justify-between">
+        {/* Bottom: LLM info + settings + theme toggle */}
+        <div className="px-4 py-4 border-t flex items-center justify-between flex-shrink-0">
           <span className="text-xs text-muted-foreground">
             {llmInfo
               ? `${llmInfo.provider === 'ollama' ? 'Local' : 'OpenAI'}`
               : 'Connecting...'}
           </span>
-          <button
-            onClick={toggleDark}
-            className="p-1.5 rounded-md hover:bg-muted transition-colors"
-          >
-            {darkMode ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
-          </button>
+          <div className="flex items-center gap-1">
+            <button
+              onClick={() => setShowSettings(true)}
+              title="LLM Settings"
+              className="p-1.5 rounded-md hover:bg-muted transition-colors text-muted-foreground hover:text-foreground"
+            >
+              <Settings className="w-4 h-4" />
+            </button>
+            <button
+              onClick={toggleDark}
+              className="p-1.5 rounded-md hover:bg-muted transition-colors"
+            >
+              {darkMode ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
+            </button>
+          </div>
         </div>
       </aside>
 
@@ -112,7 +246,7 @@ export default function App() {
           messages={messages}
           isLoading={isLoading}
           onAsk={ask}
-          onClear={clearMessages}
+          onNew={createConversation}
           llmInfo={llmInfo}
           activeSourceName={activeSourceName}
         />
@@ -172,7 +306,6 @@ export default function App() {
               <SchemaExplorer
                 schema={schema}
                 onColumnClick={(text) => {
-                  // Insert into chat input (via custom event)
                   window.dispatchEvent(new CustomEvent('insert-text', { detail: text }))
                 }}
               />
@@ -186,6 +319,20 @@ export default function App() {
           </div>
         )}
       </aside>
+
+      {/* Setup wizard — shown when LLM is not configured */}
+      {setupStatus !== null && !setupStatus.configured && (
+        <SetupWizard onSave={saveSetup} />
+      )}
+
+      {/* Settings modal */}
+      {showSettings && (
+        <SettingsModal
+          current={setupStatus}
+          onSave={saveSetup}
+          onClose={() => setShowSettings(false)}
+        />
+      )}
     </div>
   )
 }

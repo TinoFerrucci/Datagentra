@@ -1,6 +1,6 @@
 import { useRef, useEffect, useState } from 'react'
 import ReactMarkdown from 'react-markdown'
-import { Send, Loader2, Bot, User, ChevronDown, ChevronUp, Database, Cpu, Trash2 } from 'lucide-react'
+import { Send, Loader2, Bot, User, ChevronDown, ChevronUp, Database, Cpu, Plus } from 'lucide-react'
 import { SyntaxHighlighter } from './SyntaxHighlighter'
 import { DynamicChart } from './charts/DynamicChart'
 import type { ChatMessage, LLMInfo } from '@/hooks/useDatagentra'
@@ -10,7 +10,7 @@ interface ChatInterfaceProps {
   messages: ChatMessage[]
   isLoading: boolean
   onAsk: (question: string) => void
-  onClear: () => void
+  onNew: () => void
   llmInfo: LLMInfo | null
   activeSourceName: string
 }
@@ -44,7 +44,7 @@ function AgentMessage({ message }: { message: ChatMessage }) {
           <div className="flex flex-wrap gap-2">
             <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-secondary text-secondary-foreground border">
               <Database className="w-3 h-3" />
-              {r.source === 'postgres_default' ? 'PostgreSQL' : r.source}
+              {r.source === 'sqlite_default' ? 'E-commerce' : r.source === 'postgres_default' ? 'PostgreSQL' : r.source}
             </span>
             <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-indigo-100 dark:bg-indigo-900/30 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800">
               <Cpu className="w-3 h-3" />
@@ -132,7 +132,7 @@ export function ChatInterface({
   messages,
   isLoading,
   onAsk,
-  onClear,
+  onNew,
   llmInfo,
   activeSourceName,
 }: ChatInterfaceProps) {
@@ -175,15 +175,14 @@ export function ChatInterface({
             {activeSourceName} {llmInfo && `· ${llmInfo.provider === 'ollama' ? 'Local' : 'OpenAI'} / ${llmInfo.model}`}
           </p>
         </div>
-        {messages.length > 0 && (
-          <button
-            onClick={onClear}
-            className="p-2 rounded-lg hover:bg-muted transition-colors text-muted-foreground hover:text-foreground"
-            title="Clear chat"
-          >
-            <Trash2 className="w-4 h-4" />
-          </button>
-        )}
+        <button
+          onClick={onNew}
+          className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg hover:bg-muted transition-colors text-xs text-muted-foreground hover:text-foreground border"
+          title="Nueva conversación"
+        >
+          <Plus className="w-3.5 h-3.5" />
+          Nueva
+        </button>
       </div>
 
       {/* Messages */}

@@ -185,13 +185,13 @@ def test_list_datasources(client):
     data = resp.json()
     assert "sources" in data
     ids = [s["id"] for s in data["sources"]]
-    assert "postgres_default" in ids
+    assert "sqlite_default" in ids
 
 
-def test_switch_to_postgres_default(client):
-    resp = client.put("/api/datasource", json={"source_id": "postgres_default"})
+def test_switch_to_sqlite_default(client):
+    resp = client.put("/api/datasource", json={"source_id": "sqlite_default"})
     assert resp.status_code == 200
-    assert resp.json()["active_source"]["id"] == "postgres_default"
+    assert resp.json()["active_source"]["id"] == "sqlite_default"
 
 
 def test_switch_to_nonexistent_session_returns_404(client):
