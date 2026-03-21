@@ -101,6 +101,8 @@ Cada vez que hacés una pregunta, el backend guarda automáticamente:
 
 Todo se persiste en `db/conversations.db` (SQLite local).
 
+**Memoria contextual:** dentro de una misma conversación, el agente recuerda las últimas 6 preguntas y respuestas. Esto permite hacer preguntas de seguimiento como "¿y de esos, cuántos compraron más de 2 veces?" sin repetir contexto.
+
 ### Funciones desde la UI
 
 | Acción | Cómo |
@@ -131,6 +133,21 @@ Todo se persiste en `db/conversations.db` (SQLite local).
 | Variable | Descripción | Default |
 |---|---|---|
 | `VITE_API_URL` | URL del backend | `http://localhost:8000` |
+
+## API Endpoints principales
+
+| Método | Endpoint | Descripción |
+|---|---|---|
+| `POST` | `/api/ask` | Pipeline completo: pregunta → SQL → datos → gráfico |
+| `GET` | `/api/setup/status` | Estado de configuración del LLM |
+| `POST` | `/api/setup` | Guardar proveedor/modelo/key en `.env` |
+| `GET` | `/api/openai/models/current` | Listar modelos GPT usando la key ya guardada |
+| `POST` | `/api/openai/models` | Validar nueva API key y listar modelos |
+| `GET` | `/api/ollama/models` | Listar modelos Ollama disponibles |
+| `POST` | `/api/upload` | Subir CSV o SQLite |
+| `GET` | `/api/schema` | Esquema del source activo |
+| `GET` | `/api/conversations` | Listar conversaciones |
+| `DELETE` | `/api/conversations/{id}` | Eliminar conversación |
 
 ## Ejecutar Tests
 
