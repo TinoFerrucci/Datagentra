@@ -112,7 +112,7 @@ def test_chart_suggestion_for_temporal_data():
     from app.agent import _suggest_chart
     mock_llm = _make_mock_llm("line")
     with patch("app.agent.get_llm", return_value=mock_llm):
-        chart_type, _ = _suggest_chart(
+        chart_type, _, _ = _suggest_chart(
             "Sales by month",
             ["month", "total_sales"],
             [["2024-01", 1000], ["2024-02", 1200]],
@@ -125,7 +125,7 @@ def test_chart_suggestion_for_single_metric():
     from app.agent import _suggest_chart
     mock_llm = _make_mock_llm("metric")
     with patch("app.agent.get_llm", return_value=mock_llm):
-        chart_type, _ = _suggest_chart(
+        chart_type, _, _ = _suggest_chart(
             "Total revenue",
             ["total_revenue"],
             [[98765.50]],
@@ -138,7 +138,7 @@ def test_chart_suggestion_for_categories():
     from app.agent import _suggest_chart
     mock_llm = _make_mock_llm("bar")
     with patch("app.agent.get_llm", return_value=mock_llm):
-        chart_type, _ = _suggest_chart(
+        chart_type, _, _ = _suggest_chart(
             "Products by category",
             ["category", "count"],
             [["Electronics", 10], ["Books", 5], ["Toys", 3]],

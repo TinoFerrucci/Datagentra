@@ -9,59 +9,38 @@ interface DynamicChartProps {
 }
 
 export function DynamicChart({ response }: DynamicChartProps) {
-  const { chart_type, chart_config, columns, rows } = response
+  const { chart_type, chart_config, chart_title, columns, rows } = response
 
   if (!rows.length || !columns.length) {
     return <p className="text-muted-foreground text-sm italic">No data to visualize.</p>
   }
 
   if (chart_type === 'metric') {
-    return (
-      <KPICard
-        label={columns[0]}
-        value={rows[0]?.[0] ?? null}
-      />
-    )
+    return <KPICard label={chart_title || columns[0]} value={rows[0]?.[0] ?? null} />
   }
 
-  if (chart_type === 'pie') {
-    return (
-      <PieChartComponent
-        columns={columns}
-        rows={rows}
-        chartConfig={chart_config}
-      />
-    )
-  }
-
-  if (chart_type === 'line') {
-    return (
-      <LineChartComponent
-        columns={columns}
-        rows={rows}
-        chartConfig={chart_config}
-        variant="line"
-      />
-    )
-  }
-
-  if (chart_type === 'area') {
-    return (
-      <LineChartComponent
-        columns={columns}
-        rows={rows}
-        chartConfig={chart_config}
-        variant="area"
-      />
-    )
-  }
-
-  // default: bar
   return (
-    <BarChartComponent
-      columns={columns}
-      rows={rows}
-      chartConfig={chart_config}
-    />
+    <div className="space-y-3">
+      {chart_title && (
+        <p className="text-sm font-semibold text-foreground/80 tracking-tight">{chart_title}</p>
+      )}
+
+      {chart_type === 'pie' && (
+        <PieChartComponent columns={columns} rows={rows} chartConfig={chart_config} />
+      )}
+
+      {(chart_type === 'line' || chart_type === 'area') && (
+        <LineChartComponent
+          columns={columns}
+          rows={rows}
+          chartConfig={chart_config}
+          variant={chart_type}
+        />
+      )}
+
+      {(chart_type === 'bar' || !['pie', 'line', 'area', 'metric'].includes(chart_type)) && (
+        <BarChartComponent columns={columns} rows={rows} chartConfig={chart_config} />
+      )}
+    </div>
   )
 }

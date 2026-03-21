@@ -19,6 +19,7 @@ export interface AgentResponse {
   summary: string
   chart_type: 'bar' | 'line' | 'area' | 'pie' | 'metric'
   chart_config: ChartConfig
+  chart_title: string
   source: string
   llm_provider: string
   llm_model: string
