@@ -12,7 +12,6 @@ interface OllamaModel {
 interface OpenAIModel {
   id: string
   name: string
-  desc: string
 }
 
 interface SetupWizardProps {
@@ -190,36 +189,70 @@ function OllamaStep({
 }
 
 // ---------------------------------------------------------------------------
-// OpenAI step
+// OpenAI step  — phase 1: enter key  →  phase 2: pick model from real API
 // ---------------------------------------------------------------------------
 
 function OpenAIStep({ onSelect }: { onSelect: (model: string, apiKey: string) => void }) {
   const [apiKey, setApiKey] = useState('')
   const [showKey, setShowKey] = useState(false)
-  const [models, setModels] = useState<OpenAIModel[]>([])
-  const [selected, setSelected] = useState<string>('gpt-4o-mini')
+  const [validating, setValidating] = useState(false)
+  const [models, setModels] = useState<OpenAIModel[] | null>(null)   // null = not yet validated
+  const [selected, setSelected] = useState<string>('')
+  const [keyError, setKeyError] = useState<string | null>(null)
 
-  useEffect(() => {
-    fetch(`${API_URL}/api/openai/models`)
-      .then((r) => r.json())
-      .then((d) => setModels(d.models || []))
-      .catch(() => {})
-  }, [])
+  const looksLikeKey = apiKey.trim().startsWith('sk-') && apiKey.trim().length > 20
 
-  const valid = apiKey.trim().startsWith('sk-') && apiKey.trim().length > 20
+  const validate = async () => {
+    setValidating(true)
+    setKeyError(null)
+    setModels(null)
+    try {
+      const res = await fetch(`${API_URL}/api/openai/models`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ api_key: apiKey.trim() }),
+      })
+      const data = await res.json()
+      if (!res.ok) {
+        setKeyError(data.detail || 'Invalid API key.')
+        return
+      }
+      const list: OpenAIModel[] = data.models || []
+      setModels(list)
+      setSelected(list[0]?.id ?? '')
+    } catch {
+      setKeyError('Could not reach the server. Check your connection.')
+    } finally {
+      setValidating(false)
+    }
+  }
+
+  // Reset validation when key changes
+  const handleKeyChange = (v: string) => {
+    setApiKey(v)
+    if (models !== null || keyError) {
+      setModels(null)
+      setKeyError(null)
+    }
+  }
 
   return (
     <div className="space-y-5">
-      {/* API Key */}
+      {/* API Key input */}
       <div className="space-y-2">
         <label className="text-sm font-medium">OpenAI API Key</label>
-        <div className="flex gap-2 items-center rounded-xl border bg-card px-3 py-2.5 focus-within:ring-2 ring-ring">
+        <div className={cn(
+          'flex gap-2 items-center rounded-xl border bg-card px-3 py-2.5 focus-within:ring-2 ring-ring',
+          keyError && 'border-red-400'
+        )}>
           <input
             type={showKey ? 'text' : 'password'}
             value={apiKey}
-            onChange={(e) => setApiKey(e.target.value)}
+            onChange={(e) => handleKeyChange(e.target.value)}
+            onKeyDown={(e) => { if (e.key === 'Enter' && looksLikeKey && !validating) validate() }}
             placeholder="sk-..."
             className="flex-1 bg-transparent text-sm outline-none placeholder:text-muted-foreground font-mono"
+            autoFocus
           />
           <button
             onClick={() => setShowKey((s) => !s)}
@@ -228,49 +261,71 @@ function OpenAIStep({ onSelect }: { onSelect: (model: string, apiKey: string) =>
             {showKey ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
           </button>
         </div>
-        <p className="text-xs text-muted-foreground">
-          Find your key at{' '}
-          <span className="font-mono text-indigo-600 dark:text-indigo-400">platform.openai.com/api-keys</span>
-        </p>
-      </div>
-
-      {/* Model selector */}
-      <div className="space-y-2">
-        <label className="text-sm font-medium">Model</label>
-        <div className="space-y-1.5">
-          {models.map((m) => (
-            <button
-              key={m.id}
-              onClick={() => setSelected(m.id)}
-              className={cn(
-                'w-full flex items-center justify-between rounded-xl border px-4 py-3 text-sm transition-colors text-left',
-                selected === m.id
-                  ? 'border-indigo-400 bg-indigo-50 dark:bg-indigo-950/30'
-                  : 'border-border hover:bg-muted'
-              )}
-            >
-              <div>
-                <p className="font-medium">{m.name}</p>
-                <p className="text-xs text-muted-foreground">{m.desc}</p>
-              </div>
-              {selected === m.id && <CheckCircle2 className="w-4 h-4 text-indigo-600 flex-shrink-0" />}
-            </button>
-          ))}
-        </div>
-      </div>
-
-      <button
-        disabled={!valid}
-        onClick={() => valid && onSelect(selected, apiKey.trim())}
-        className={cn(
-          'w-full py-3 rounded-xl font-semibold text-sm transition-colors',
-          valid
-            ? 'bg-indigo-600 hover:bg-indigo-700 text-white'
-            : 'bg-muted text-muted-foreground cursor-not-allowed'
+        {keyError ? (
+          <p className="text-xs text-red-600 dark:text-red-400">{keyError}</p>
+        ) : (
+          <p className="text-xs text-muted-foreground">
+            Get your key at{' '}
+            <span className="font-mono text-indigo-600 dark:text-indigo-400">platform.openai.com/api-keys</span>
+          </p>
         )}
-      >
-        {valid ? `Continue with ${selected}` : 'Enter a valid API key to continue'}
-      </button>
+      </div>
+
+      {/* Validate button — shown while no models yet */}
+      {models === null && (
+        <button
+          disabled={!looksLikeKey || validating}
+          onClick={validate}
+          className={cn(
+            'w-full py-3 rounded-xl font-semibold text-sm transition-colors flex items-center justify-center gap-2',
+            looksLikeKey && !validating
+              ? 'bg-indigo-600 hover:bg-indigo-700 text-white'
+              : 'bg-muted text-muted-foreground cursor-not-allowed'
+          )}
+        >
+          {validating ? (
+            <><Loader2 className="w-4 h-4 animate-spin" /> Validating key...</>
+          ) : (
+            'Validate key & list models'
+          )}
+        </button>
+      )}
+
+      {/* Model list — shown after successful validation */}
+      {models !== null && (
+        <div className="space-y-3">
+          <div className="flex items-center gap-2 text-sm text-green-600 dark:text-green-400 font-medium">
+            <CheckCircle2 className="w-4 h-4" />
+            Key valid — {models.length} models available
+          </div>
+
+          <div className="space-y-1.5 max-h-52 overflow-y-auto pr-1">
+            {models.map((m) => (
+              <button
+                key={m.id}
+                onClick={() => setSelected(m.id)}
+                className={cn(
+                  'w-full flex items-center justify-between rounded-xl border px-4 py-2.5 text-sm transition-colors text-left',
+                  selected === m.id
+                    ? 'border-indigo-400 bg-indigo-50 dark:bg-indigo-950/30'
+                    : 'border-border hover:bg-muted'
+                )}
+              >
+                <span className="font-mono font-medium">{m.id}</span>
+                {selected === m.id && <CheckCircle2 className="w-4 h-4 text-indigo-600 flex-shrink-0" />}
+              </button>
+            ))}
+          </div>
+
+          <button
+            disabled={!selected}
+            onClick={() => selected && onSelect(selected, apiKey.trim())}
+            className="w-full py-3 rounded-xl font-semibold text-sm bg-indigo-600 hover:bg-indigo-700 text-white transition-colors"
+          >
+            Use {selected}
+          </button>
+        </div>
+      )}
     </div>
   )
 }

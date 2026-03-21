@@ -6,7 +6,7 @@ import type { SetupStatus } from '@/hooks/useDatagentra'
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000'
 
 interface OllamaModel { name: string; size: number }
-interface OpenAIModel { id: string; name: string; desc: string }
+interface OpenAIModel { id: string; name: string }
 
 interface SettingsModalProps {
   current: SetupStatus | null
@@ -22,32 +22,32 @@ function formatBytes(bytes: number): string {
 
 export function SettingsModal({ current, onSave, onClose }: SettingsModalProps) {
   const [provider, setProvider] = useState<'openai' | 'ollama'>(current?.provider ?? 'openai')
+
+  // OpenAI state
   const [apiKey, setApiKey] = useState('')
   const [showKey, setShowKey] = useState(false)
-  const [selectedModel, setSelectedModel] = useState(current?.model ?? 'gpt-4o-mini')
+  const [validating, setValidating] = useState(false)
+  const [openaiModels, setOpenaiModels] = useState<OpenAIModel[] | null>(null)  // null = not validated yet
+  const [keyError, setKeyError] = useState<string | null>(null)
+  const [selectedOpenaiModel, setSelectedOpenaiModel] = useState(
+    current?.provider === 'openai' ? (current.model ?? 'gpt-4o-mini') : 'gpt-4o-mini'
+  )
+
+  // Ollama state
   const [ollamaModels, setOllamaModels] = useState<OllamaModel[]>([])
-  const [openaiModels, setOpenaiModels] = useState<OpenAIModel[]>([])
   const [ollamaRunning, setOllamaRunning] = useState<boolean | null>(null)
   const [checkingOllama, setCheckingOllama] = useState(false)
+  const [selectedOllamaModel, setSelectedOllamaModel] = useState(
+    current?.provider === 'ollama' ? (current.model ?? '') : ''
+  )
+
+  // Save state
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
-    fetch(`${API_URL}/api/openai/models`)
-      .then((r) => r.json())
-      .then((d) => setOpenaiModels(d.models || []))
-      .catch(() => {})
-
     if (provider === 'ollama') checkOllama()
-  }, [])
-
-  useEffect(() => {
-    if (provider === 'ollama' && ollamaRunning === null) checkOllama()
-    // Reset selected model to first available when switching provider
-    if (provider === 'openai' && openaiModels.length > 0) {
-      setSelectedModel(current?.provider === 'openai' ? (current.model ?? 'gpt-4o-mini') : 'gpt-4o-mini')
-    }
   }, [provider])
 
   const checkOllama = async () => {
@@ -56,13 +56,10 @@ export function SettingsModal({ current, onSave, onClose }: SettingsModalProps) 
       const res = await fetch(`${API_URL}/api/ollama/models`)
       const data = await res.json()
       setOllamaRunning(data.running)
-      setOllamaModels(data.models || [])
-      if (data.models?.length > 0 && provider === 'ollama') {
-        setSelectedModel(
-          current?.provider === 'ollama' && data.models.find((m: OllamaModel) => m.name === current.model)
-            ? current.model
-            : data.models[0].name
-        )
+      const models: OllamaModel[] = data.models || []
+      setOllamaModels(models)
+      if (!selectedOllamaModel && models.length > 0) {
+        setSelectedOllamaModel(models[0].name)
       }
     } catch {
       setOllamaRunning(false)
@@ -71,12 +68,50 @@ export function SettingsModal({ current, onSave, onClose }: SettingsModalProps) 
     }
   }
 
+  const validateKey = async () => {
+    setValidating(true)
+    setKeyError(null)
+    setOpenaiModels(null)
+    try {
+      const res = await fetch(`${API_URL}/api/openai/models`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ api_key: apiKey.trim() }),
+      })
+      const data = await res.json()
+      if (!res.ok) {
+        setKeyError(data.detail || 'Invalid API key.')
+        return
+      }
+      const list: OpenAIModel[] = data.models || []
+      setOpenaiModels(list)
+      setSelectedOpenaiModel(list[0]?.id ?? '')
+    } catch {
+      setKeyError('Could not reach the server.')
+    } finally {
+      setValidating(false)
+    }
+  }
+
+  const handleKeyChange = (v: string) => {
+    setApiKey(v)
+    if (openaiModels !== null || keyError) {
+      setOpenaiModels(null)
+      setKeyError(null)
+    }
+  }
+
   const handleSave = async () => {
     setSaving(true)
     setError(null)
     try {
-      const key = provider === 'openai' && apiKey.trim() ? apiKey.trim() : undefined
-      await onSave(provider, selectedModel, key)
+      if (provider === 'openai') {
+        // If user validated a new key, use it. Otherwise keep current.
+        const key = openaiModels !== null ? apiKey.trim() : undefined
+        await onSave(provider, selectedOpenaiModel, key)
+      } else {
+        await onSave(provider, selectedOllamaModel)
+      }
       setSaved(true)
       setTimeout(() => { setSaved(false); onClose() }, 1200)
     } catch (e) {
@@ -86,10 +121,17 @@ export function SettingsModal({ current, onSave, onClose }: SettingsModalProps) 
     }
   }
 
+  const looksLikeKey = apiKey.trim().startsWith('sk-') && apiKey.trim().length > 20
+
+  // Can save:
+  // - OpenAI: model selected AND (already configured with openai OR new key validated)
+  // - Ollama: running AND model selected
   const canSave =
-    provider === 'ollama'
-      ? ollamaRunning && !!selectedModel
-      : !!selectedModel && (current?.provider === 'openai' || (apiKey.trim().startsWith('sk-') && apiKey.trim().length > 20))
+    provider === 'openai'
+      ? !!selectedOpenaiModel && (
+          (current?.provider === 'openai' && openaiModels === null) || openaiModels !== null
+        )
+      : ollamaRunning === true && !!selectedOllamaModel
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
@@ -137,54 +179,98 @@ export function SettingsModal({ current, onSave, onClose }: SettingsModalProps) 
             </div>
           </div>
 
-          {/* OpenAI config */}
+          {/* ── OpenAI config ── */}
           {provider === 'openai' && (
             <div className="space-y-4">
+              {/* Current model badge (when already configured & no new key entered) */}
+              {current?.provider === 'openai' && openaiModels === null && (
+                <div className="flex items-center gap-2 rounded-xl bg-muted px-4 py-3 text-sm">
+                  <CheckCircle2 className="w-4 h-4 text-green-600" />
+                  <span className="text-muted-foreground">Currently using</span>
+                  <span className="font-mono font-medium">{current.model}</span>
+                </div>
+              )}
+
+              {/* API Key input */}
               <div className="space-y-2">
                 <label className="text-sm font-medium">
-                  API Key {current?.provider === 'openai' && <span className="text-muted-foreground font-normal">(leave blank to keep current)</span>}
+                  {current?.provider === 'openai'
+                    ? 'New API Key (optional — enter to change)'
+                    : 'API Key'}
                 </label>
-                <div className="flex gap-2 items-center rounded-xl border bg-background px-3 py-2.5 focus-within:ring-2 ring-ring">
+                <div className={cn(
+                  'flex gap-2 items-center rounded-xl border bg-background px-3 py-2.5 focus-within:ring-2 ring-ring',
+                  keyError && 'border-red-400'
+                )}>
                   <input
                     type={showKey ? 'text' : 'password'}
                     value={apiKey}
-                    onChange={(e) => setApiKey(e.target.value)}
-                    placeholder={current?.provider === 'openai' ? '••••••••••••••••' : 'sk-...'}
+                    onChange={(e) => handleKeyChange(e.target.value)}
+                    onKeyDown={(e) => { if (e.key === 'Enter' && looksLikeKey && !validating) validateKey() }}
+                    placeholder={current?.provider === 'openai' ? '••••••••  leave blank to keep current' : 'sk-...'}
                     className="flex-1 bg-transparent text-sm outline-none placeholder:text-muted-foreground font-mono"
                   />
                   <button onClick={() => setShowKey((s) => !s)} className="text-muted-foreground hover:text-foreground">
                     {showKey ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                   </button>
                 </div>
+                {keyError && <p className="text-xs text-red-600 dark:text-red-400">{keyError}</p>}
               </div>
 
-              <div className="space-y-2">
-                <label className="text-sm font-medium">Model</label>
-                <div className="space-y-1.5">
-                  {openaiModels.map((m) => (
-                    <button
-                      key={m.id}
-                      onClick={() => setSelectedModel(m.id)}
-                      className={cn(
-                        'w-full flex items-center justify-between rounded-xl border px-4 py-2.5 text-sm transition-colors text-left',
-                        selectedModel === m.id
-                          ? 'border-indigo-400 bg-indigo-50 dark:bg-indigo-950/30'
-                          : 'border-border hover:bg-muted'
-                      )}
-                    >
-                      <div>
-                        <p className="font-medium">{m.name}</p>
-                        <p className="text-xs text-muted-foreground">{m.desc}</p>
-                      </div>
-                      {selectedModel === m.id && <CheckCircle2 className="w-4 h-4 text-indigo-600 flex-shrink-0" />}
-                    </button>
-                  ))}
+              {/* Validate button — only when a new key is being entered */}
+              {apiKey.trim() && openaiModels === null && (
+                <button
+                  disabled={!looksLikeKey || validating}
+                  onClick={validateKey}
+                  className={cn(
+                    'w-full py-2.5 rounded-xl font-semibold text-sm transition-colors flex items-center justify-center gap-2',
+                    looksLikeKey && !validating
+                      ? 'bg-indigo-600 hover:bg-indigo-700 text-white'
+                      : 'bg-muted text-muted-foreground cursor-not-allowed'
+                  )}
+                >
+                  {validating ? (
+                    <><Loader2 className="w-4 h-4 animate-spin" /> Validating...</>
+                  ) : (
+                    'Validate key & list models'
+                  )}
+                </button>
+              )}
+
+              {/* Model list — after validation OR when already configured */}
+              {(openaiModels !== null || (current?.provider === 'openai' && !apiKey.trim())) && (
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between">
+                    <label className="text-sm font-medium">Model</label>
+                    {openaiModels !== null && (
+                      <span className="text-xs text-green-600 dark:text-green-400 font-medium flex items-center gap-1">
+                        <CheckCircle2 className="w-3.5 h-3.5" /> Key validated
+                      </span>
+                    )}
+                  </div>
+                  <div className="space-y-1.5 max-h-44 overflow-y-auto pr-1">
+                    {(openaiModels ?? [{ id: current!.model, name: current!.model }]).map((m) => (
+                      <button
+                        key={m.id}
+                        onClick={() => setSelectedOpenaiModel(m.id)}
+                        className={cn(
+                          'w-full flex items-center justify-between rounded-xl border px-4 py-2.5 text-sm transition-colors text-left',
+                          selectedOpenaiModel === m.id
+                            ? 'border-indigo-400 bg-indigo-50 dark:bg-indigo-950/30'
+                            : 'border-border hover:bg-muted'
+                        )}
+                      >
+                        <span className="font-mono font-medium">{m.id}</span>
+                        {selectedOpenaiModel === m.id && <CheckCircle2 className="w-4 h-4 text-indigo-600 flex-shrink-0" />}
+                      </button>
+                    ))}
+                  </div>
                 </div>
-              </div>
+              )}
             </div>
           )}
 
-          {/* Ollama config */}
+          {/* ── Ollama config ── */}
           {provider === 'ollama' && (
             <div className="space-y-4">
               <div className={cn(
@@ -206,20 +292,20 @@ export function SettingsModal({ current, onSave, onClose }: SettingsModalProps) 
               </div>
 
               {ollamaRunning && ollamaModels.length > 0 && (
-                <div className="space-y-1.5 max-h-40 overflow-y-auto pr-1">
+                <div className="space-y-1.5 max-h-44 overflow-y-auto pr-1">
                   {ollamaModels.map((m) => (
                     <button
                       key={m.name}
-                      onClick={() => setSelectedModel(m.name)}
+                      onClick={() => setSelectedOllamaModel(m.name)}
                       className={cn(
                         'w-full flex items-center justify-between rounded-xl border px-4 py-2.5 text-sm transition-colors text-left',
-                        selectedModel === m.name
+                        selectedOllamaModel === m.name
                           ? 'border-indigo-400 bg-indigo-50 dark:bg-indigo-950/30'
                           : 'border-border hover:bg-muted'
                       )}
                     >
-                      <p className="font-medium">{m.name}</p>
-                      <p className="text-xs text-muted-foreground">{formatBytes(m.size)}</p>
+                      <span className="font-medium">{m.name}</span>
+                      <span className="text-xs text-muted-foreground">{formatBytes(m.size)}</span>
                     </button>
                   ))}
                 </div>

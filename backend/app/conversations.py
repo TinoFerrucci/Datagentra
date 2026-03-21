@@ -146,6 +146,31 @@ def add_message(
     return msg_id
 
 
+def get_recent_history(conv_id: str, limit: int = 6) -> list[dict]:
+    """Return the last `limit` user/agent message pairs for context injection.
+
+    Returns a list of dicts with keys: type, content, sql (if agent).
+    """
+    with _connect() as conn:
+        rows = conn.execute(
+            """SELECT type, content, response_json
+               FROM messages
+               WHERE conversation_id = ?
+               ORDER BY timestamp DESC
+               LIMIT ?""",
+            (conv_id, limit),
+        ).fetchall()
+
+    history = []
+    for r in reversed(rows):  # chronological order
+        entry: dict = {"type": r["type"], "content": r["content"]}
+        if r["response_json"]:
+            resp = json.loads(r["response_json"])
+            entry["sql"] = resp.get("sql", "")
+        history.append(entry)
+    return history
+
+
 def auto_title(conv_id: str, question: str) -> None:
     """Set title from first question if still the default placeholder."""
     title = question[:60].strip()

@@ -218,3 +218,7 @@ backend/.env
 
 # Temp SQLite files
 /tmp/datagentra_*.db
+# Conversation history (local only, never push)
+db/conversations.db
+db/conversations.db-shm
+db/conversations.db-wal

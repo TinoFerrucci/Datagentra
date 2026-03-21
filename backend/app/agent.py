@@ -53,12 +53,34 @@ def _is_dangerous(sql: str) -> bool:
     return bool(DANGEROUS_PATTERNS.search(sql))
 
 
-def _generate_sql(question: str, ddl: str, db_type: str = "PostgreSQL") -> str:
+def _format_history(history: list[dict]) -> str:
+    """Format conversation history for inclusion in prompts."""
+    if not history:
+        return ""
+    lines = ["Previous conversation context:"]
+    for entry in history:
+        if entry["type"] == "user":
+            lines.append(f"  User asked: {entry['content']}")
+        elif entry["type"] == "agent":
+            if entry.get("sql"):
+                lines.append(f"  SQL used: {entry['sql']}")
+            lines.append(f"  Answer summary: {entry['content']}")
+    return "\n".join(lines)
+
+
+def _generate_sql(
+    question: str,
+    ddl: str,
+    db_type: str = "PostgreSQL",
+    history: list[dict] | None = None,
+) -> str:
     llm = get_llm()
+    history_block = _format_history(history or [])
+    history_section = f"\n{history_block}\n" if history_block else ""
     prompt = f"""You are a {db_type} expert. Given the following database schema:
 
 {ddl}
-
+{history_section}
 Write a {db_type} SELECT query to answer this question:
 "{question}"
 
@@ -68,6 +90,7 @@ Rules:
 - Use proper {db_type} syntax.
 - If using date functions, use {db_type}-compatible functions.
 - Wrap column and table names in double quotes if they contain special characters.
+- If the question refers to previous results (e.g. "those same products", "the top one"), use the context above.
 
 SQL:"""
     return _clean_sql(llm.invoke(prompt))
@@ -174,6 +197,7 @@ def run_pipeline(
     question: str,
     engine: Engine | None = None,
     session_id: str | None = None,
+    history: list[dict] | None = None,
 ) -> dict:
     """Full Text-to-SQL pipeline.
 
@@ -194,8 +218,8 @@ def run_pipeline(
 
     ddl = get_schema_ddl(engine)
 
-    # Step 1: Generate SQL
-    sql = _generate_sql(question, ddl, db_type)
+    # Step 1: Generate SQL (with conversation context if available)
+    sql = _generate_sql(question, ddl, db_type, history=history)
 
     # Step 2: Execute with retries
     columns: list[str] = []

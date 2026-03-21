@@ -88,7 +88,9 @@ async def ask(req: AskRequest):
         session_id = req.session_id or (
             _active_source.get("id") if _active_source["type"] not in ("postgres", "sqlite") else None
         )
-        result = run_pipeline(question=req.question, session_id=session_id)
+        # Fetch conversation history for context-aware SQL generation
+        history = conv.get_recent_history(req.conversation_id) if req.conversation_id else []
+        result = run_pipeline(question=req.question, session_id=session_id, history=history)
     except PermissionError as exc:
         raise HTTPException(status_code=403, detail=str(exc))
     except RuntimeError as exc:
@@ -282,12 +284,31 @@ async def llm_info():
 
 # ------ Setup & Config ------
 
-_OPENAI_MODELS = [
-    {"id": "gpt-4o-mini",    "name": "GPT-4o mini",    "desc": "Rápido y económico — recomendado"},
-    {"id": "gpt-4o",         "name": "GPT-4o",          "desc": "Mayor calidad, más capaz"},
-    {"id": "gpt-4-turbo",    "name": "GPT-4 Turbo",     "desc": "Muy capaz, buen balance"},
-    {"id": "gpt-3.5-turbo",  "name": "GPT-3.5 Turbo",   "desc": "Económico, menor calidad"},
+# Priority order for sorting OpenAI models in the UI
+_OPENAI_MODEL_PRIORITY = [
+    "gpt-4o",
+    "gpt-4o-mini",
+    "gpt-4-turbo",
+    "gpt-4",
+    "gpt-3.5-turbo",
 ]
+
+# Models to exclude from the list (embeddings, audio, image, etc.)
+_OPENAI_MODEL_EXCLUDE_PREFIXES = (
+    "text-", "tts-", "whisper-", "dall-e", "davinci", "babbage",
+    "curie", "ada", "embedding", "moderation", "o1-mini", "o1-preview",
+)
+
+
+def _sort_openai_models(models: list[dict]) -> list[dict]:
+    """Sort models: known priority first, then alphabetical."""
+    def key(m: dict) -> tuple:
+        mid = m["id"]
+        try:
+            return (0, _OPENAI_MODEL_PRIORITY.index(mid))
+        except ValueError:
+            return (1, mid)
+    return sorted(models, key=key)
 
 
 @app.get("/api/setup/status")
@@ -345,7 +366,39 @@ async def get_ollama_models():
         return {"running": False, "models": [], "base_url": base_url}
 
 
-@app.get("/api/openai/models")
-async def get_openai_models():
-    """Return the curated list of supported OpenAI models."""
-    return {"models": _OPENAI_MODELS}
+class OpenAIValidateRequest(BaseModel):
+    api_key: str
+
+
+@app.post("/api/openai/models")
+async def get_openai_models_with_key(req: OpenAIValidateRequest):
+    """Validate an OpenAI API key and return the available GPT models."""
+    import httpx
+    if not req.api_key.startswith("sk-"):
+        raise HTTPException(status_code=422, detail="API key must start with 'sk-'.")
+    try:
+        async with httpx.AsyncClient() as client:
+            resp = await client.get(
+                "https://api.openai.com/v1/models",
+                headers={"Authorization": f"Bearer {req.api_key}"},
+                timeout=10.0,
+            )
+            if resp.status_code == 401:
+                raise HTTPException(status_code=401, detail="Invalid API key.")
+            if resp.status_code == 429:
+                raise HTTPException(status_code=429, detail="Rate limited. Try again in a moment.")
+            resp.raise_for_status()
+            data = resp.json()
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"Could not reach OpenAI: {exc}")
+
+    # Filter to GPT chat/completion models only
+    models = [
+        {"id": m["id"], "name": m["id"]}
+        for m in data.get("data", [])
+        if m["id"].startswith("gpt-")
+        and not any(m["id"].startswith(p) for p in _OPENAI_MODEL_EXCLUDE_PREFIXES)
+    ]
+    return {"valid": True, "models": _sort_openai_models(models)}
