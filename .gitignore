@@ -208,3 +208,13 @@ __marimo__/
 
 # Local development
 guide/
+
+# Frontend
+frontend/node_modules/
+frontend/dist/
+
+# Backend envs (keep .env.example, ignore actual .env)
+backend/.env
+
+# Temp SQLite files
+/tmp/datagentra_*.db
