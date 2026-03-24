@@ -142,6 +142,20 @@ def get_schema_info(engine: Engine | None = None) -> dict:
             except Exception:
                 row_count = 0
 
+            # Foreign keys
+            fk_meta = inspector.get_foreign_keys(table)
+            fk_map: dict[str, dict] = {}
+            for fk in fk_meta:
+                for local_col, ref_col in zip(fk["constrained_columns"], fk["referred_columns"]):
+                    fk_map[local_col] = {"ref_table": fk["referred_table"], "ref_column": ref_col}
+
+            # Mark PK columns
+            pk_cols = set(inspector.get_pk_constraint(table).get("constrained_columns", []))
+            for col in columns:
+                col["is_pk"] = col["name"] in pk_cols
+                if col["name"] in fk_map:
+                    col["fk"] = fk_map[col["name"]]
+
             tables[table] = {
                 "columns": columns,
                 "row_count": row_count,

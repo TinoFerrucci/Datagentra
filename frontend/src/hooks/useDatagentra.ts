@@ -58,8 +58,16 @@ export interface UploadResult {
   columns_info: Record<string, unknown>
 }
 
+export interface SchemaColumn {
+  name: string
+  type: string
+  nullable: boolean
+  is_pk?: boolean
+  fk?: { ref_table: string; ref_column: string }
+}
+
 export interface SchemaTable {
-  columns: { name: string; type: string; nullable: boolean }[]
+  columns: SchemaColumn[]
   row_count: number
 }
 

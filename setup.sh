@@ -68,13 +68,20 @@ SQLITE_DB_PATH="${SCRIPT_DIR}/db/datagentra.db"
 # ── Write backend/.env ────────────────────────────────────────────────────────
 section "Escribiendo archivos .env"
 
-cat > "${SCRIPT_DIR}/backend/.env" <<EOF
+# Preserve existing OPENAI_API_KEY if already set
+EXISTING_ENV="${SCRIPT_DIR}/backend/.env"
+EXISTING_OPENAI_KEY=""
+if [[ -f "$EXISTING_ENV" ]]; then
+    EXISTING_OPENAI_KEY=$(grep -E '^OPENAI_API_KEY=' "$EXISTING_ENV" | cut -d'=' -f2- || true)
+fi
+
+cat > "${EXISTING_ENV}" <<EOF
 # SQLite database
 SQLITE_DB_PATH=${SQLITE_DB_PATH}
 
 # LLM Provider — configured from the UI on first launch
 LLM_PROVIDER=openai
-OPENAI_API_KEY=
+OPENAI_API_KEY=${EXISTING_OPENAI_KEY}
 OPENAI_MODEL=gpt-4o-mini
 OLLAMA_BASE_URL=http://localhost:11434
 OLLAMA_MODEL=qwen2.5:7b

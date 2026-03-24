@@ -24,6 +24,14 @@ function getDtypeBadge(dtype: string): string {
   return TYPE_BADGE[dtype] ?? 'bg-secondary text-secondary-foreground'
 }
 
+function fmtStat(v: number | undefined): string {
+  if (v === undefined || v === null) return '—'
+  if (Math.abs(v) >= 1_000_000) return `${(v / 1_000_000).toFixed(1)}M`
+  if (Math.abs(v) >= 1_000) return `${(v / 1_000).toFixed(1)}K`
+  if (Number.isInteger(v)) return v.toLocaleString()
+  return v.toFixed(2)
+}
+
 export function DataSourcePanel({ onUpload, onFix, onConfirm }: DataSourcePanelProps) {
   const [state, setState] = useState<PanelState>('idle')
   const [progress, setProgress] = useState(0)
@@ -99,18 +107,19 @@ export function DataSourcePanel({ onUpload, onFix, onConfirm }: DataSourcePanelP
     setFixPrompt('')
   }
 
+  type ColInfo = { dtype: string; null_pct: number; min?: number; max?: number; mean?: number; top_values?: string[] }
   // Get columns info (handle both CSV flat and SQLite nested)
-  const getColumnsInfo = (): Record<string, { dtype: string; null_pct: number }> => {
+  const getColumnsInfo = (): Record<string, ColInfo> => {
     if (!result) return {}
     const ci = result.columns_info as Record<string, unknown>
-    // Flat (CSV)
+    // Flat (CSV): first value has 'dtype'
     if (ci && typeof Object.values(ci)[0] === 'object' && 'dtype' in ((Object.values(ci)[0] as Record<string, unknown>) ?? {})) {
-      return ci as Record<string, { dtype: string; null_pct: number }>
+      return ci as Record<string, ColInfo>
     }
     // Nested (SQLite): flatten first table
     const firstTable = Object.values(ci)[0]
     if (firstTable && typeof firstTable === 'object') {
-      return firstTable as Record<string, { dtype: string; null_pct: number }>
+      return firstTable as Record<string, ColInfo>
     }
     return {}
   }
@@ -194,19 +203,40 @@ export function DataSourcePanel({ onUpload, onFix, onConfirm }: DataSourcePanelP
               onClick={() => setShowSchema(!showSchema)}
               className="w-full flex items-center justify-between px-3 py-2 bg-muted text-xs font-medium"
             >
-              Schema
+              Columns & Stats ({Object.keys(getColumnsInfo()).length})
               {showSchema ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
             </button>
             {showSchema && (
-              <div className="divide-y max-h-48 overflow-y-auto">
+              <div className="divide-y max-h-64 overflow-y-auto">
                 {Object.entries(getColumnsInfo()).map(([col, info]) => (
-                  <div key={col} className="flex items-center gap-2 px-3 py-1.5 text-xs">
-                    <span className="font-mono text-muted-foreground flex-1 truncate">{col}</span>
-                    <span className={cn('px-1.5 py-0.5 rounded text-[10px] font-medium', getDtypeBadge(info.dtype))}>
-                      {info.dtype}
-                    </span>
-                    {info.null_pct > 0 && (
-                      <span className="text-muted-foreground">{info.null_pct}% null</span>
+                  <div key={col} className="px-3 py-2 text-xs space-y-0.5">
+                    <div className="flex items-center gap-2">
+                      <span className="font-mono text-foreground font-medium flex-1 truncate">{col}</span>
+                      <span className={cn('px-1.5 py-0.5 rounded text-[10px] font-medium flex-shrink-0', getDtypeBadge(info.dtype))}>
+                        {info.dtype}
+                      </span>
+                      {info.null_pct > 0 && (
+                        <span className="text-[10px] text-amber-600 dark:text-amber-400 flex-shrink-0">{info.null_pct}% null</span>
+                      )}
+                    </div>
+                    {/* Numeric stats */}
+                    {info.dtype !== 'VARCHAR' && info.dtype !== 'DATE' && info.dtype !== 'BOOLEAN' &&
+                     info.min !== undefined && (
+                      <div className="flex gap-3 text-[10px] text-muted-foreground font-mono pl-0.5">
+                        <span>min <span className="text-foreground">{fmtStat(info.min)}</span></span>
+                        <span>max <span className="text-foreground">{fmtStat(info.max)}</span></span>
+                        <span>avg <span className="text-foreground">{fmtStat(info.mean)}</span></span>
+                      </div>
+                    )}
+                    {/* Top values for text */}
+                    {info.top_values && info.top_values.length > 0 && (
+                      <div className="flex flex-wrap gap-1 pl-0.5">
+                        {info.top_values.slice(0, 4).map((v: string) => (
+                          <span key={v} className="px-1.5 py-0.5 rounded bg-muted text-[10px] text-muted-foreground truncate max-w-[80px]">
+                            {String(v)}
+                          </span>
+                        ))}
+                      </div>
                     )}
                   </div>
                 ))}

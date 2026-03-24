@@ -42,10 +42,15 @@ def _clean_sql(raw: str) -> str:
         return match.group(1).strip()
     # Remove think tags (some models output <think>...</think>)
     raw = re.sub(r"<think>[\s\S]*?</think>", "", raw, flags=re.IGNORECASE)
-    # Return first SELECT statement found
-    sel = re.search(r"(SELECT[\s\S]+?)(;|$)", raw, re.IGNORECASE)
-    if sel:
-        return sel.group(1).strip()
+    # Find the SQL statement at the start of a line.
+    # WITH must be checked before SELECT because SELECT also appears inside CTE bodies —
+    # matching SELECT first would silently strip the leading "WITH ... AS (" prefix.
+    start = re.search(r"(?m)^[ \t]*(WITH|SELECT)\b", raw, re.IGNORECASE)
+    if start:
+        sql = raw[start.start():]
+        # Drop anything after a trailing semicolon + newline (post-SQL prose the LLM adds)
+        sql = re.split(r";[ \t]*\n", sql)[0].rstrip(";").strip()
+        return sql
     return raw.strip()
 
 
@@ -182,66 +187,9 @@ Rules:
 
 
 # ---------------------------------------------------------------------------
-# Column classification helpers
 # ---------------------------------------------------------------------------
-
-# Columns with these substrings should NEVER be x_key or y_key
-_COL_EXCLUDE = frozenset([
-    'email', 'mail', 'url', 'link', 'phone', 'tel', 'address',
-    'password', 'token', 'hash', 'avatar', 'image', 'photo', 'uuid', 'guid',
-])
-
-# Substrings that indicate an ID column (numeric but not a metric)
-_COL_ID = frozenset(['_id', 'id'])
-
-# Substrings that make a column a good x_key label
-_COL_NAME_KWORDS = frozenset([
-    'name', 'title', 'label', 'category', 'product', 'type', 'status',
-    'region', 'country', 'city', 'brand', 'model', 'description',
-    'department', 'segment', 'group', 'class', 'tag',
-])
-
-# Substrings that indicate a time dimension (x_key for line/area)
-_COL_DATE_KWORDS = frozenset([
-    'date', 'month', 'year', 'week', 'day', 'period',
-    'time', 'quarter', 'created', 'updated', 'at',
-])
-
-# Substrings that indicate a meaningful numeric metric (prefer for y_keys)
-_COL_METRIC_KWORDS = frozenset([
-    'total', 'sum', 'count', 'amount', 'revenue', 'sales', 'price',
-    'cost', 'value', 'spent', 'earning', 'profit', 'quantity', 'avg',
-    'average', 'orders', 'items', 'purchases', 'transactions', 'rate',
-    'score', 'rank', 'volume', 'balance',
-])
-
-
-def _col_is_id(col: str) -> bool:
-    c = col.lower()
-    return c == 'id' or c.endswith('_id') or c.endswith('id') or 'uuid' in c or 'guid' in c
-
-
-def _col_is_excluded(col: str) -> bool:
-    c = col.lower()
-    return any(kw in c for kw in _COL_EXCLUDE)
-
-
-def _detect_column_types(columns: list[str], rows: list[list]) -> tuple[list[str], list[str]]:
-    """Classify columns as numeric or categorical based on sample data.
-    Returns (numeric_cols, string_cols).
-    """
-    numeric: list[str] = []
-    strings: list[str] = []
-    sample = rows[:20]
-    for i, col in enumerate(columns):
-        vals = [row[i] for row in sample if i < len(row) and row[i] is not None]
-        num_count = sum(1 for v in vals if _try_float(v))
-        if vals and num_count / len(vals) >= 0.7:
-            numeric.append(col)
-        else:
-            strings.append(col)
-    return numeric, strings
-
+# Chart suggestion — fully LLM-driven
+# ---------------------------------------------------------------------------
 
 def _try_float(v: object) -> bool:
     try:
@@ -251,112 +199,62 @@ def _try_float(v: object) -> bool:
         return False
 
 
-def _xkey_score(col: str, idx: int, rows: list[list]) -> int:
-    """Score a column for use as the chart's label axis. Higher = better."""
-    c = col.lower()
-    if _col_is_id(col):      return -1000
-    if _col_is_excluded(col): return -800
-
-    score = 0
-    if any(kw in c for kw in _COL_NAME_KWORDS):  score += 120
-    if any(kw in c for kw in _COL_DATE_KWORDS):  score += 90
-    score += max(0, 30 - idx * 8)  # slight preference for earlier columns
-
-    # Penalise very long values (emails, URLs, etc.)
-    sample_vals = [
-        str(rows[r][idx])
-        for r in range(min(5, len(rows)))
-        if idx < len(rows[r]) and rows[r][idx] is not None
-    ]
-    if sample_vals:
-        avg_len = sum(len(v) for v in sample_vals) / len(sample_vals)
-        if avg_len > 40:  score -= 150
-        elif avg_len > 25: score -= 40
-        if any('@' in v for v in sample_vals): score -= 300
-
-    return score
-
-
-def _ykey_score(col: str) -> int:
-    """Score a numeric column for use as a chart metric. Higher = better."""
-    if _col_is_id(col):      return -500
-    if _col_is_excluded(col): return -500
-    c = col.lower()
-    score = 0
-    if any(kw in c for kw in _COL_METRIC_KWORDS): score += 100
-    if any(kw in c for kw in ['total', 'revenue', 'sales', 'spent', 'amount']): score += 60
-    if 'count' in c or 'orders' in c:   score += 30
-    if 'avg' in c or 'average' in c:    score += 20
-    return score
-
-
-def _select_axes(
-    columns: list[str],
-    rows: list[list],
-    numeric_cols: list[str],
-    string_cols: list[str],
-) -> tuple[str, list[str]]:
-    """Deterministically pick the best x_key and y_keys without the LLM."""
-    col_index = {c: i for i, c in enumerate(columns)}
-
-    # Score every column for x_key
-    x_scores = {col: _xkey_score(col, col_index[col], rows) for col in columns}
-    x_key = max(x_scores, key=x_scores.__getitem__)
-    if x_scores[x_key] < -100:
-        x_key = string_cols[0] if string_cols else columns[0]
-
-    # Score numeric columns for y_keys (exclude the chosen x_key and bad cols)
-    y_cands = sorted(
-        [(col, _ykey_score(col)) for col in numeric_cols if col != x_key and _ykey_score(col) > -100],
-        key=lambda t: t[1],
-        reverse=True,
-    )
-    y_keys = [c for c, _ in y_cands[:3]]
-
-    if not y_keys:
-        y_keys = [c for c in numeric_cols if c != x_key][:1]
-    if not y_keys:
-        y_keys = [c for c in columns if c != x_key][:1]
-
-    return x_key, y_keys
+def _col_types(columns: list[str], rows: list[list]) -> dict[str, str]:
+    """Return {'col': 'numeric' | 'text'} for each column based on sample data."""
+    sample = rows[:20]
+    result: dict[str, str] = {}
+    for i, col in enumerate(columns):
+        vals = [row[i] for row in sample if i < len(row) and row[i] is not None]
+        num_count = sum(1 for v in vals if _try_float(v))
+        result[col] = 'numeric' if vals and num_count / len(vals) >= 0.7 else 'text'
+    return result
 
 
 def _suggest_chart(question: str, columns: list[str], rows: list[list]) -> tuple[str, dict, str]:
-    """Suggest chart type + title (LLM), axes (deterministic)."""
+    """Ask the LLM to determine chart type, title, and axes from question and result data."""
     llm = get_llm()
-    numeric_cols, string_cols = _detect_column_types(columns, rows)
+    types = _col_types(columns, rows)
 
-    # Deterministic axis selection — no LLM hallucinations
-    x_key, y_keys = _select_axes(columns, rows, numeric_cols, string_cols)
+    col_summary = ", ".join(f"{c} ({types[c]})" for c in columns)
 
-    # Detect if there is a time dimension for line/area vs bar choice
-    has_time = any(any(kw in c.lower() for kw in _COL_DATE_KWORDS) for c in columns)
-
-    col_summary = ", ".join(
-        f"{c}={'numeric' if c in numeric_cols else 'text'}" for c in columns
+    sample_rows = rows[:3]
+    sample_str = "\n".join(
+        "  " + "  |  ".join(f"{columns[i]}: {row[i]}" for i in range(min(len(columns), len(row))))
+        for row in sample_rows
     )
 
-    prompt = f"""Given a data question and result shape, respond with exactly 2 lines:
-Line 1: chart type (one word)
-Line 2: chart title (3-7 words, title case, no punctuation)
+    prompt = f"""You are a data visualization expert. Given a user question and query results, decide the best chart configuration.
+
+Respond with exactly 4 lines — nothing else:
+Line 1: chart_type  (one of: bar, line, area, pie, metric)
+Line 2: title       (3-8 words, Title Case, no punctuation)
+Line 3: x_key       (exact column name for the label axis)
+Line 4: y_keys      (comma-separated exact column names for the value axes, most relevant first, max 3)
 
 Question: "{question}"
 Columns: {col_summary}
-Rows: {len(rows)}
-Has time dimension: {has_time}
+Total rows: {len(rows)}
+Sample data:
+{sample_str}
 
-Rules:
-- "metric" → 1 row, 1 numeric column (single KPI)
-- "pie"    → 2 columns (label + value), ≤8 rows, parts of a whole
-- "area"   → time series with continuous trend (fill under line)
-- "line"   → time series, multiple series or discrete points
-- "bar"    → category comparison or ranking (default)
+Chart type rules:
+- metric → single KPI (1 row, 1 key number)
+- pie    → parts of a whole (≤8 rows, exactly 2 columns)
+- area   → continuous time trend (fill under line)
+- line   → time series or multi-series trend
+- bar    → ranking, comparison, or any other case (default)
 
-Example:
+Axis rules:
+- x_key must be the column that uniquely identifies each row in the context of the question
+  (e.g. for "top products by revenue" → product_name, not category_name or brand_name)
+- y_keys must be the numeric columns the question is asking about
+- never use id columns, internal keys, or metadata
+
+Example output for "top 10 products by revenue":
 bar
-Top Customers by Total Spend
-
-Respond with exactly 2 lines. Nothing else."""
+Top 10 Products by Revenue
+product_name
+total_revenue, total_orders, total_units_sold"""
 
     raw = llm.invoke(prompt).strip()
     raw = re.sub(r"<think>[\s\S]*?</think>", "", raw, flags=re.IGNORECASE).strip()
@@ -367,6 +265,18 @@ Respond with exactly 2 lines. Nothing else."""
         chart_type = "bar"
 
     chart_title = lines[1] if len(lines) > 1 else question[:60]
+
+    # x_key — validate it exists in columns, fall back to first text column
+    raw_x = lines[2] if len(lines) > 2 else ""
+    x_key = raw_x if raw_x in columns else next(
+        (c for c in columns if types[c] == 'text'), columns[0]
+    )
+
+    # y_keys — validate each against columns, fall back to numeric columns
+    raw_y = lines[3] if len(lines) > 3 else ""
+    y_keys = [k.strip() for k in raw_y.split(",") if k.strip() in columns and k.strip() != x_key]
+    if not y_keys:
+        y_keys = [c for c in columns if types[c] == 'numeric' and c != x_key][:3]
 
     return chart_type, {"x_key": x_key, "y_keys": y_keys}, chart_title
 
