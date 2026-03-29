@@ -72,7 +72,7 @@ function AgentMessage({ message }: { message: ChatMessage }) {
               onClick={() => setShowSql(!showSql)}
               className="w-full flex items-center justify-between px-4 py-2.5 text-sm font-medium bg-muted hover:bg-muted/70 transition-colors"
             >
-              <span className="font-mono text-xs text-muted-foreground">SQL utilizado</span>
+              <span className="font-mono text-xs text-muted-foreground">SQL used</span>
               {showSql ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
             </button>
             {showSql && (
@@ -91,7 +91,7 @@ function AgentMessage({ message }: { message: ChatMessage }) {
               className="w-full flex items-center justify-between px-4 py-2.5 text-sm font-medium bg-muted hover:bg-muted/70 transition-colors"
             >
               <span className="text-xs text-muted-foreground">
-                Datos crudos ({r.rows.length} filas)
+                Raw data ({r.rows.length} rows)
               </span>
               {showTable ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
             </button>
@@ -178,10 +178,10 @@ export function ChatInterface({
         <button
           onClick={onNew}
           className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg hover:bg-muted transition-colors text-xs text-muted-foreground hover:text-foreground border"
-          title="Nueva conversación"
+          title="New conversation"
         >
           <Plus className="w-3.5 h-3.5" />
-          Nueva
+          New
         </button>
       </div>
 

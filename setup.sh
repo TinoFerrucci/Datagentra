@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # =============================================================================
 # Datagentra — Setup Script
-# Configura .env y crea la base de datos SQLite local
+# Configures .env files and creates the local SQLite database
 # =============================================================================
 
 set -euo pipefail
@@ -35,7 +35,7 @@ ask() {
 banner() {
     echo -e "${BOLD}"
     echo "╔══════════════════════════════════════════════════════╗"
-    echo "║        Datagentra — Analista de Datos Autónomo       ║"
+    echo "║          Datagentra — Autonomous Data Analyst        ║"
     echo "║                    Setup Wizard                      ║"
     echo "╚══════════════════════════════════════════════════════╝"
     echo -e "${NC}"
@@ -59,14 +59,14 @@ error()   { echo -e "${RED}✗ $1${NC}" >&2; }
 banner
 
 # ── App config ────────────────────────────────────────────────────────────────
-section "Configuración general"
-ask MAX_UPLOAD_SIZE_MB "Tamaño máximo de archivos subidos (MB)" "50"
-ask VITE_API_URL       "URL del backend (para el frontend)"    "http://localhost:8000"
+section "General configuration"
+ask MAX_UPLOAD_SIZE_MB "Maximum upload file size (MB)" "50"
+ask VITE_API_URL       "Backend URL (for the frontend)" "http://localhost:8000"
 
 SQLITE_DB_PATH="${SCRIPT_DIR}/db/datagentra.db"
 
 # ── Write backend/.env ────────────────────────────────────────────────────────
-section "Escribiendo archivos .env"
+section "Writing .env files"
 
 # Preserve existing OPENAI_API_KEY if already set
 EXISTING_ENV="${SCRIPT_DIR}/backend/.env"
@@ -90,25 +90,25 @@ OLLAMA_MODEL=qwen2.5:7b
 MAX_UPLOAD_SIZE_MB=${MAX_UPLOAD_SIZE_MB}
 EOF
 
-success "backend/.env generado"
+success "backend/.env created"
 
 cat > "${SCRIPT_DIR}/frontend/.env" <<EOF
 VITE_API_URL=${VITE_API_URL}
 EOF
 
-success "frontend/.env generado"
+success "frontend/.env created"
 
 # ── Create SQLite database ────────────────────────────────────────────────────
-section "Creando base de datos SQLite"
+section "Creating SQLite database"
 
 if [[ -f "$SQLITE_DB_PATH" ]]; then
-    warn "La base de datos ya existe en: ${SQLITE_DB_PATH}"
-    ask RESEED "¿Recrearla? (borrará todos los datos) [s/N]" "N"
-    if [[ "${RESEED,,}" == "s" ]]; then
+    warn "Database already exists at: ${SQLITE_DB_PATH}"
+    ask RESEED "Recreate it? (this will delete all data) [y/N]" "N"
+    if [[ "${RESEED,,}" == "y" ]]; then
         rm -f "$SQLITE_DB_PATH"
-        info "Base de datos eliminada, recreando..."
+        info "Database deleted, recreating..."
     else
-        success "Se mantendrá la base de datos existente"
+        success "Keeping existing database"
     fi
 fi
 
@@ -120,53 +120,53 @@ if [[ ! -f "$SQLITE_DB_PATH" ]]; then
     elif command -v python3 &>/dev/null; then
         SQLITE_DB_PATH="$SQLITE_DB_PATH" python3 "${SEED_SCRIPT}"
     else
-        error "No se encontró 'uv' ni 'python3'. Instala Python 3.12+ para crear la base de datos."
+        error "Neither 'uv' nor 'python3' found. Install Python 3.12+ to create the database."
         exit 1
     fi
-    success "Base de datos creada: ${SQLITE_DB_PATH}"
+    success "Database created: ${SQLITE_DB_PATH}"
 fi
 
 # ── Summary ───────────────────────────────────────────────────────────────────
-section "Setup completado"
+section "Setup complete"
 
 echo
-echo -e "${BOLD}Configuración guardada:${NC}"
-echo -e "  Base de datos: ${YELLOW}${SQLITE_DB_PATH}${NC}"
-echo -e "  Frontend:      ${YELLOW}http://localhost:5173${NC}"
-echo -e "  Backend:       ${YELLOW}http://localhost:8000${NC}"
-echo -e "  LLM:           ${CYAN}configurable desde la UI al abrir la app${NC}"
+echo -e "${BOLD}Configuration saved:${NC}"
+echo -e "  Database:  ${YELLOW}${SQLITE_DB_PATH}${NC}"
+echo -e "  Frontend:  ${YELLOW}http://localhost:5173${NC}"
+echo -e "  Backend:   ${YELLOW}http://localhost:8000${NC}"
+echo -e "  LLM:       ${CYAN}configurable from the UI on first launch${NC}"
 echo
 
 # ── Check dependencies ────────────────────────────────────────────────────────
-section "Verificando dependencias"
+section "Checking dependencies"
 
 if ! command -v uv &>/dev/null; then
-    error "'uv' no está instalado. Instálalo con: curl -LsSf https://astral.sh/uv/install.sh | sh"
+    error "'uv' is not installed. Install it with: curl -LsSf https://astral.sh/uv/install.sh | sh"
     exit 1
 fi
 success "uv $(uv --version 2>&1 | head -1)"
 
 if ! command -v npm &>/dev/null; then
-    error "'npm' no está instalado. Instala Node.js desde https://nodejs.org/"
+    error "'npm' is not installed. Install Node.js from https://nodejs.org/"
     exit 1
 fi
 success "npm $(npm --version)"
 
 # ── Install frontend deps if needed ───────────────────────────────────────────
 if [[ ! -d "${SCRIPT_DIR}/frontend/node_modules" ]]; then
-    info "Instalando dependencias del frontend (primera vez)..."
+    info "Installing frontend dependencies (first time)..."
     (cd "${SCRIPT_DIR}/frontend" && npm install --silent)
-    success "Dependencias del frontend instaladas"
+    success "Frontend dependencies installed"
 fi
 
 # ── Launch ────────────────────────────────────────────────────────────────────
-section "Iniciando la aplicación"
+section "Starting the application"
 
 # Kill any existing processes on these ports
 for port in 8000 5173; do
     pid=$(lsof -ti tcp:"$port" 2>/dev/null || true)
     if [[ -n "$pid" ]]; then
-        warn "Puerto $port ocupado (PID $pid) — cerrando..."
+        warn "Port $port in use (PID $pid) — stopping..."
         kill -9 $pid 2>/dev/null || true
         sleep 0.5
     fi
@@ -175,22 +175,22 @@ done
 BACKEND_LOG="${SCRIPT_DIR}/backend.log"
 FRONTEND_LOG="${SCRIPT_DIR}/frontend.log"
 
-info "Iniciando backend  → logs en backend.log"
+info "Starting backend  → logs in backend.log"
 (cd "${SCRIPT_DIR}/backend" && uv run uvicorn app.main:app --port 8000) > "$BACKEND_LOG" 2>&1 &
 BACKEND_PID=$!
 
-info "Iniciando frontend → logs en frontend.log"
+info "Starting frontend → logs in frontend.log"
 (cd "${SCRIPT_DIR}/frontend" && npm run dev) > "$FRONTEND_LOG" 2>&1 &
 FRONTEND_PID=$!
 
 # Wait for backend to be ready
-info "Esperando que el backend esté listo..."
+info "Waiting for backend to be ready..."
 for i in $(seq 1 30); do
     if curl -sf http://localhost:8000/health &>/dev/null; then
         break
     fi
     if ! kill -0 "$BACKEND_PID" 2>/dev/null; then
-        error "El backend falló al iniciar. Revisá backend.log:"
+        error "Backend failed to start. Check backend.log:"
         tail -20 "$BACKEND_LOG"
         kill "$FRONTEND_PID" 2>/dev/null || true
         exit 1
@@ -199,47 +199,47 @@ for i in $(seq 1 30); do
 done
 
 if ! curl -sf http://localhost:8000/health &>/dev/null; then
-    error "El backend no respondió a tiempo. Revisá backend.log:"
+    error "Backend did not respond in time. Check backend.log:"
     tail -20 "$BACKEND_LOG"
     kill "$BACKEND_PID" "$FRONTEND_PID" 2>/dev/null || true
     exit 1
 fi
 
-success "Backend listo en http://localhost:8000"
+success "Backend ready at http://localhost:8000"
 
 # Wait for frontend to be ready
-info "Esperando que el frontend esté listo..."
+info "Waiting for frontend to be ready..."
 for i in $(seq 1 30); do
     if curl -sf http://localhost:5173 &>/dev/null; then
         break
     fi
     if ! kill -0 "$FRONTEND_PID" 2>/dev/null; then
-        error "El frontend falló al iniciar. Revisá frontend.log:"
+        error "Frontend failed to start. Check frontend.log:"
         tail -20 "$FRONTEND_LOG"
         break
     fi
     sleep 1
 done
 
-success "Frontend listo en http://localhost:5173"
+success "Frontend ready at http://localhost:5173"
 
 echo
 echo -e "${BOLD}${GREEN}╔══════════════════════════════════════════════════════╗${NC}"
-echo -e "${BOLD}${GREEN}║   Datagentra corriendo en http://localhost:5173      ║${NC}"
+echo -e "${BOLD}${GREEN}║   Datagentra running at http://localhost:5173        ║${NC}"
 echo -e "${BOLD}${GREEN}╚══════════════════════════════════════════════════════╝${NC}"
 echo
 echo -e "  Backend PID:  ${YELLOW}${BACKEND_PID}${NC}   (logs: backend.log)"
 echo -e "  Frontend PID: ${YELLOW}${FRONTEND_PID}${NC}  (logs: frontend.log)"
 echo
-echo -e "  Para detener: ${CYAN}kill ${BACKEND_PID} ${FRONTEND_PID}${NC}"
+echo -e "  To stop: ${CYAN}kill ${BACKEND_PID} ${FRONTEND_PID}${NC}"
 echo
 
 # Keep script alive so Ctrl+C stops both processes
 cleanup() {
     echo
-    warn "Deteniendo servicios..."
+    warn "Stopping services..."
     kill "$BACKEND_PID" "$FRONTEND_PID" 2>/dev/null || true
-    success "Servicios detenidos."
+    success "Services stopped."
 }
 trap cleanup EXIT INT TERM
 

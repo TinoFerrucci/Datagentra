@@ -1,7 +1,7 @@
 services:
 
-  # ── Inicialización de la base de datos ────────────────────────────────────────
-  # Corre una sola vez: crea y semilla datagentra.db si no existe.
+  # ── Database initialisation ───────────────────────────────────────────────────
+  # Runs once: seeds datagentra.db if it does not exist yet.
   db-init:
     image: python:3.12-slim
     container_name: datagentra_db_init
@@ -12,7 +12,7 @@ services:
     command: python /db/seed_sqlite.py
     restart: "no"
 
-  # ── Backend FastAPI ───────────────────────────────────────────────────────────
+  # ── FastAPI backend ───────────────────────────────────────────────────────────
   backend:
     build:
       context: ./backend
@@ -20,7 +20,7 @@ services:
     container_name: datagentra_backend
     env_file:
       - ./backend/.env
-    # Sobreescribe los paths de DB para que sean correctos dentro del contenedor
+    # Override DB paths to the correct absolute paths inside the container
     environment:
       SQLITE_DB_PATH: /app/db/datagentra.db
       CONVERSATIONS_DB_PATH: /app/db/conversations.db
@@ -39,7 +39,7 @@ services:
       start_period: 20s
     restart: unless-stopped
 
-  # ── Frontend React + Vite ────────────────────────────────────────────────────
+  # ── React + Vite frontend ────────────────────────────────────────────────────
   frontend:
     build:
       context: ./frontend

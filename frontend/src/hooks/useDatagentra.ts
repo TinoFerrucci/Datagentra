@@ -235,7 +235,7 @@ export function useDatagentra() {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ provider, model, ...(apiKey ? { api_key: apiKey } : {}) }),
     })
-    if (!res.ok) throw new Error('Error al guardar la configuración')
+    if (!res.ok) throw new Error('Failed to save configuration')
     await Promise.all([fetchSetupStatus(), fetchLLMInfo()])
   }, [fetchSetupStatus, fetchLLMInfo])
 

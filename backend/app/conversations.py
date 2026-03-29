@@ -37,7 +37,7 @@ def init_db() -> None:
         conn.executescript("""
         CREATE TABLE IF NOT EXISTS conversations (
             id         TEXT PRIMARY KEY,
-            title      TEXT NOT NULL DEFAULT 'Nueva conversación',
+            title      TEXT NOT NULL DEFAULT 'New conversation',
             created_at TEXT NOT NULL,
             updated_at TEXT NOT NULL
         );
@@ -64,7 +64,7 @@ def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
-def create_conversation(title: str = "Nueva conversación") -> dict:
+def create_conversation(title: str = "New conversation") -> dict:
     now = _now()
     conv_id = str(uuid.uuid4())
     with _connect() as conn:
@@ -178,6 +178,6 @@ def auto_title(conv_id: str, question: str) -> None:
         title += "…"
     with _connect() as conn:
         conn.execute(
-            "UPDATE conversations SET title = ? WHERE id = ? AND title = 'Nueva conversación'",
+            "UPDATE conversations SET title = ? WHERE id = ? AND title = 'New conversation'",
             (title, conv_id),
         )
