@@ -1,4 +1,4 @@
-import { useState, useRef } from 'react'
+import { useState, useRef, useEffect } from 'react'
 import {
   Database,
   Upload,
@@ -6,7 +6,6 @@ import {
   ChevronRight,
   Moon,
   Sun,
-  LayoutDashboard,
   Plus,
   Trash2,
   MessageSquare,
@@ -15,6 +14,8 @@ import {
   X,
   Settings,
 } from 'lucide-react'
+import logoUrl from '../statics/logo.png'
+import datagentraUrl from '../statics/datagentra.png'
 import { useDatagentra } from './hooks/useDatagentra'
 import { ChatInterface } from './components/ChatInterface'
 import { SchemaExplorer } from './components/SchemaExplorer'
@@ -27,7 +28,7 @@ import type { Conversation } from './hooks/useDatagentra'
 type RightPanel = 'schema' | 'upload'
 
 export default function App() {
-  const [darkMode, setDarkMode] = useState(false)
+  const [darkMode, setDarkMode] = useState(() => localStorage.getItem('theme') === 'dark')
   const [rightPanel, setRightPanel] = useState<RightPanel>('schema')
   const [rightCollapsed, setRightCollapsed] = useState(false)
   const [editingConvId, setEditingConvId] = useState<string | null>(null)
@@ -57,10 +58,14 @@ export default function App() {
     switchDataSource,
   } = useDatagentra()
 
+  useEffect(() => {
+    if (darkMode) document.documentElement.classList.add('dark')
+    else document.documentElement.classList.remove('dark')
+  }, [darkMode])
+
   const toggleDark = () => {
     setDarkMode((d) => {
-      if (!d) document.documentElement.classList.add('dark')
-      else document.documentElement.classList.remove('dark')
+      localStorage.setItem('theme', d ? 'light' : 'dark')
       return !d
     })
   }
@@ -92,9 +97,7 @@ export default function App() {
       <aside className="w-56 border-r flex flex-col bg-card flex-shrink-0">
         {/* Logo */}
         <div className="flex items-center gap-2 px-4 py-5 border-b">
-          <div className="w-7 h-7 rounded-lg bg-indigo-600 flex items-center justify-center">
-            <LayoutDashboard className="w-4 h-4 text-white" />
-          </div>
+          <img src={logoUrl} alt="Datagentra" className="w-7 h-7 object-contain" />
           <span className="font-bold text-sm">Datagentra</span>
         </div>
 
@@ -125,7 +128,7 @@ export default function App() {
                 className={cn(
                   'group relative flex items-center rounded-md text-xs transition-colors cursor-pointer',
                   conv.id === activeConversationId
-                    ? 'bg-indigo-100 dark:bg-indigo-900/40 text-indigo-700 dark:text-indigo-300'
+                    ? 'bg-teal-100 dark:bg-teal-900/40 text-teal-700 dark:text-teal-300'
                     : 'text-muted-foreground hover:bg-muted hover:text-foreground'
                 )}
               >
@@ -140,7 +143,7 @@ export default function App() {
                         if (e.key === 'Enter') commitEdit()
                         if (e.key === 'Escape') cancelEdit()
                       }}
-                      className="flex-1 min-w-0 bg-transparent border-b border-indigo-400 outline-none text-xs"
+                      className="flex-1 min-w-0 bg-transparent border-b border-teal-400 outline-none text-xs"
                       autoFocus
                     />
                     <button onClick={commitEdit} className="text-green-600 hover:text-green-700">
@@ -198,14 +201,14 @@ export default function App() {
                   className={cn(
                     'w-full flex items-center gap-2 px-2 py-1.5 rounded-md text-xs font-medium transition-colors text-left',
                     source.active
-                      ? 'bg-indigo-100 dark:bg-indigo-900/40 text-indigo-700 dark:text-indigo-300'
+                      ? 'bg-teal-100 dark:bg-teal-900/40 text-teal-700 dark:text-teal-300'
                       : 'text-muted-foreground hover:bg-muted hover:text-foreground'
                   )}
                 >
                   <Database className="w-3.5 h-3.5 flex-shrink-0" />
                   <span className="truncate">{source.name}</span>
                   {source.active && (
-                    <span className="ml-auto w-1.5 h-1.5 rounded-full bg-indigo-500 flex-shrink-0" />
+                    <span className="ml-auto w-1.5 h-1.5 rounded-full bg-teal-500 flex-shrink-0" />
                   )}
                 </button>
               ))}
@@ -242,14 +245,30 @@ export default function App() {
           MAIN CHAT AREA
       ================================================================ */}
       <main className="flex-1 flex flex-col min-w-0">
-        <ChatInterface
-          messages={messages}
-          isLoading={isLoading}
-          onAsk={ask}
-          onNew={createConversation}
-          llmInfo={llmInfo}
-          activeSourceName={activeSourceName}
-        />
+        {activeConversationId ? (
+          <ChatInterface
+            messages={messages}
+            isLoading={isLoading}
+            onAsk={ask}
+            onNew={createConversation}
+            llmInfo={llmInfo}
+            activeSourceName={activeSourceName}
+          />
+        ) : (
+          <div className="flex flex-col items-center justify-center h-full gap-6 text-center px-8">
+            <img src={datagentraUrl} alt="Datagentra" className="h-14 object-contain opacity-90" />
+            <p className="text-muted-foreground text-sm">
+              Selecciona una conversación o inicia una nueva
+            </p>
+            <button
+              onClick={createConversation}
+              className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-primary text-primary-foreground text-sm font-semibold hover:opacity-90 transition-opacity"
+            >
+              <Plus className="w-4 h-4" />
+              Nueva conversación
+            </button>
+          </div>
+        )}
       </main>
 
       {/* ================================================================
@@ -270,7 +289,7 @@ export default function App() {
                 className={cn(
                   'flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-xs font-medium transition-colors',
                   rightPanel === 'schema'
-                    ? 'bg-indigo-100 dark:bg-indigo-900/40 text-indigo-700 dark:text-indigo-300'
+                    ? 'bg-teal-100 dark:bg-teal-900/40 text-teal-700 dark:text-teal-300'
                     : 'text-muted-foreground hover:bg-muted'
                 )}
               >
@@ -282,7 +301,7 @@ export default function App() {
                 className={cn(
                   'flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-xs font-medium transition-colors',
                   rightPanel === 'upload'
-                    ? 'bg-indigo-100 dark:bg-indigo-900/40 text-indigo-700 dark:text-indigo-300'
+                    ? 'bg-teal-100 dark:bg-teal-900/40 text-teal-700 dark:text-teal-300'
                     : 'text-muted-foreground hover:bg-muted'
                 )}
               >

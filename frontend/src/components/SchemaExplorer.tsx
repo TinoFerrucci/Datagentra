@@ -52,7 +52,7 @@ function ColumnRow({ col, onColumnClick }: { col: SchemaColumn; onColumnClick?: 
       {col.is_pk ? (
         <Key className="w-3 h-3 text-amber-500 flex-shrink-0" />
       ) : col.fk ? (
-        <Link className="w-3 h-3 text-indigo-400 flex-shrink-0" />
+        <Link className="w-3 h-3 text-teal-400 flex-shrink-0" />
       ) : (
         <span className="w-3 flex-shrink-0" />
       )}
@@ -63,7 +63,7 @@ function ColumnRow({ col, onColumnClick }: { col: SchemaColumn; onColumnClick?: 
 
       {/* FK badge */}
       {col.fk && (
-        <span className="text-[9px] text-indigo-500 dark:text-indigo-400 font-medium flex-shrink-0 truncate max-w-[60px]">
+        <span className="text-[9px] text-teal-500 dark:text-teal-400 font-medium flex-shrink-0 truncate max-w-[60px]">
           →{col.fk.ref_table}
         </span>
       )}
@@ -107,7 +107,7 @@ function RelationsPanel({ relations }: { relations: Relation[] }) {
             <div key={i} className="flex items-center gap-1 text-[10px] text-muted-foreground font-mono">
               <span className="text-foreground font-medium">{r.from_table}</span>
               <span>.{r.from_col}</span>
-              <span className="text-indigo-500 mx-0.5">→</span>
+              <span className="text-teal-500 mx-0.5">→</span>
               <span className="text-foreground font-medium">{r.to_table}</span>
               <span>.{r.to_col}</span>
             </div>
@@ -156,12 +156,12 @@ export function SchemaExplorer({ schema, onColumnClick }: SchemaExplorerProps) {
                 {isOpen
                   ? <ChevronDown className="w-3.5 h-3.5 text-muted-foreground flex-shrink-0" />
                   : <ChevronRight className="w-3.5 h-3.5 text-muted-foreground flex-shrink-0" />}
-                <Table2 className="w-3.5 h-3.5 text-indigo-500 flex-shrink-0" />
+                <Table2 className="w-3.5 h-3.5 text-teal-500 flex-shrink-0" />
                 <span className="font-medium flex-1 text-left truncate text-sm">{tableName}</span>
                 {/* FK/PK indicators on hover */}
                 <span className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
                   {fkCount > 0 && (
-                    <span className="text-[9px] text-indigo-400 flex items-center gap-0.5">
+                    <span className="text-[9px] text-teal-400 flex items-center gap-0.5">
                       <Link className="w-2.5 h-2.5" />{fkCount}
                     </span>
                   )}

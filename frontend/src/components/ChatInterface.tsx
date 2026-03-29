@@ -35,8 +35,8 @@ function AgentMessage({ message }: { message: ChatMessage }) {
 
   return (
     <div className="flex gap-3">
-      <div className="w-8 h-8 rounded-full bg-indigo-100 dark:bg-indigo-900/30 flex items-center justify-center flex-shrink-0 mt-1">
-        <Bot className="w-4 h-4 text-indigo-600 dark:text-indigo-400" />
+      <div className="w-8 h-8 rounded-full bg-teal-100 dark:bg-teal-900/30 flex items-center justify-center flex-shrink-0 mt-1">
+        <Bot className="w-4 h-4 text-teal-600 dark:text-teal-400" />
       </div>
       <div className="flex-1 space-y-4">
         {/* Badges */}
@@ -46,7 +46,7 @@ function AgentMessage({ message }: { message: ChatMessage }) {
               <Database className="w-3 h-3" />
               {r.source === 'sqlite_default' ? 'E-commerce' : r.source === 'postgres_default' ? 'PostgreSQL' : r.source}
             </span>
-            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-indigo-100 dark:bg-indigo-900/30 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800">
+            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-teal-100 dark:bg-teal-900/30 text-teal-700 dark:text-teal-300 border border-teal-200 dark:border-teal-800">
               <Cpu className="w-3 h-3" />
               {r.llm_provider === 'ollama' ? 'Local' : 'OpenAI'} · {r.llm_model}
             </span>
@@ -189,8 +189,8 @@ export function ChatInterface({
       <div className="flex-1 overflow-y-auto px-6 py-4 space-y-6">
         {messages.length === 0 && (
           <div className="flex flex-col items-center justify-center h-full gap-6 text-center">
-            <div className="w-16 h-16 rounded-2xl bg-indigo-100 dark:bg-indigo-900/30 flex items-center justify-center">
-              <Bot className="w-8 h-8 text-indigo-600 dark:text-indigo-400" />
+            <div className="w-16 h-16 rounded-2xl bg-teal-100 dark:bg-teal-900/30 flex items-center justify-center">
+              <Bot className="w-8 h-8 text-teal-600 dark:text-teal-400" />
             </div>
             <div>
               <h2 className="text-xl font-semibold mb-1">Ask anything about your data</h2>
@@ -227,8 +227,8 @@ export function ChatInterface({
 
         {isLoading && (
           <div className="flex gap-3">
-            <div className="w-8 h-8 rounded-full bg-indigo-100 dark:bg-indigo-900/30 flex items-center justify-center flex-shrink-0">
-              <Bot className="w-4 h-4 text-indigo-600 dark:text-indigo-400" />
+            <div className="w-8 h-8 rounded-full bg-teal-100 dark:bg-teal-900/30 flex items-center justify-center flex-shrink-0">
+              <Bot className="w-4 h-4 text-teal-600 dark:text-teal-400" />
             </div>
             <div className="flex items-center gap-2 text-muted-foreground text-sm">
               <Loader2 className="w-4 h-4 animate-spin" />

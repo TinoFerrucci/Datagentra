@@ -138,7 +138,7 @@ function OllamaStep({
                 className={cn(
                   'w-full flex items-center justify-between rounded-xl border px-4 py-3 text-sm transition-colors text-left',
                   selected === m.name
-                    ? 'border-indigo-400 bg-indigo-50 dark:bg-indigo-950/30'
+                    ? 'border-teal-400 bg-teal-50 dark:bg-teal-950/30'
                     : 'border-border hover:bg-muted'
                 )}
               >
@@ -178,7 +178,7 @@ function OllamaStep({
         className={cn(
           'w-full py-3 rounded-xl font-semibold text-sm transition-colors',
           selected
-            ? 'bg-indigo-600 hover:bg-indigo-700 text-white'
+            ? 'bg-teal-600 hover:bg-teal-700 text-white'
             : 'bg-muted text-muted-foreground cursor-not-allowed'
         )}
       >
@@ -266,7 +266,7 @@ function OpenAIStep({ onSelect }: { onSelect: (model: string, apiKey: string) =>
         ) : (
           <p className="text-xs text-muted-foreground">
             Get your key at{' '}
-            <span className="font-mono text-indigo-600 dark:text-indigo-400">platform.openai.com/api-keys</span>
+            <span className="font-mono text-teal-600 dark:text-teal-400">platform.openai.com/api-keys</span>
           </p>
         )}
       </div>
@@ -279,7 +279,7 @@ function OpenAIStep({ onSelect }: { onSelect: (model: string, apiKey: string) =>
           className={cn(
             'w-full py-3 rounded-xl font-semibold text-sm transition-colors flex items-center justify-center gap-2',
             looksLikeKey && !validating
-              ? 'bg-indigo-600 hover:bg-indigo-700 text-white'
+              ? 'bg-teal-600 hover:bg-teal-700 text-white'
               : 'bg-muted text-muted-foreground cursor-not-allowed'
           )}
         >
@@ -307,12 +307,12 @@ function OpenAIStep({ onSelect }: { onSelect: (model: string, apiKey: string) =>
                 className={cn(
                   'w-full flex items-center justify-between rounded-xl border px-4 py-2.5 text-sm transition-colors text-left',
                   selected === m.id
-                    ? 'border-indigo-400 bg-indigo-50 dark:bg-indigo-950/30'
+                    ? 'border-teal-400 bg-teal-50 dark:bg-teal-950/30'
                     : 'border-border hover:bg-muted'
                 )}
               >
                 <span className="font-mono font-medium">{m.id}</span>
-                {selected === m.id && <CheckCircle2 className="w-4 h-4 text-indigo-600 flex-shrink-0" />}
+                {selected === m.id && <CheckCircle2 className="w-4 h-4 text-teal-600 flex-shrink-0" />}
               </button>
             ))}
           </div>
@@ -320,7 +320,7 @@ function OpenAIStep({ onSelect }: { onSelect: (model: string, apiKey: string) =>
           <button
             disabled={!selected}
             onClick={() => selected && onSelect(selected, apiKey.trim())}
-            className="w-full py-3 rounded-xl font-semibold text-sm bg-indigo-600 hover:bg-indigo-700 text-white transition-colors"
+            className="w-full py-3 rounded-xl font-semibold text-sm bg-teal-600 hover:bg-teal-700 text-white transition-colors"
           >
             Use {selected}
           </button>
@@ -361,14 +361,14 @@ export function SetupWizard({ onSave }: SetupWizardProps) {
     <div className="fixed inset-0 z-50 bg-background/95 backdrop-blur-sm flex items-center justify-center p-4">
       <div className="w-full max-w-lg bg-card border rounded-2xl shadow-2xl overflow-hidden">
         {/* Header */}
-        <div className="bg-gradient-to-br from-indigo-600 to-indigo-700 px-6 py-6 text-white">
+        <div className="bg-gradient-to-br from-teal-600 to-teal-700 px-6 py-6 text-white">
           <div className="flex items-center gap-3 mb-2">
             <div className="w-9 h-9 rounded-xl bg-white/20 flex items-center justify-center">
               <Bot className="w-5 h-5" />
             </div>
             <h1 className="text-xl font-bold">Welcome to Datagentra</h1>
           </div>
-          <p className="text-indigo-200 text-sm">
+          <p className="text-teal-200 text-sm">
             {step === 'provider'
               ? 'Choose how you want to power the AI agent.'
               : provider === 'openai'
@@ -393,7 +393,7 @@ export function SetupWizard({ onSave }: SetupWizardProps) {
         <div className="px-6 py-6">
           {saving ? (
             <div className="flex flex-col items-center justify-center py-12 gap-4 text-muted-foreground">
-              <Loader2 className="w-8 h-8 animate-spin text-indigo-600" />
+              <Loader2 className="w-8 h-8 animate-spin text-teal-600" />
               <p className="text-sm font-medium">Saving configuration...</p>
             </div>
           ) : step === 'provider' ? (
@@ -405,7 +405,7 @@ export function SetupWizard({ onSave }: SetupWizardProps) {
                 {/* OpenAI */}
                 <button
                   onClick={() => handleProviderSelect('openai')}
-                  className="flex flex-col items-start gap-3 rounded-2xl border-2 border-border hover:border-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-950/20 p-5 transition-all text-left group"
+                  className="flex flex-col items-start gap-3 rounded-2xl border-2 border-border hover:border-teal-400 hover:bg-teal-50 dark:hover:bg-teal-950/20 p-5 transition-all text-left group"
                 >
                   <div className="w-10 h-10 rounded-xl bg-green-100 dark:bg-green-900/30 flex items-center justify-center">
                     <Cpu className="w-5 h-5 text-green-600 dark:text-green-400" />
@@ -414,13 +414,13 @@ export function SetupWizard({ onSave }: SetupWizardProps) {
                     <p className="font-semibold text-sm mb-1">OpenAI</p>
                     <p className="text-xs text-muted-foreground">Cloud API. Best quality, requires API key.</p>
                   </div>
-                  <ChevronRight className="w-4 h-4 text-muted-foreground group-hover:text-indigo-600 mt-auto self-end" />
+                  <ChevronRight className="w-4 h-4 text-muted-foreground group-hover:text-teal-600 mt-auto self-end" />
                 </button>
 
                 {/* Ollama */}
                 <button
                   onClick={() => handleProviderSelect('ollama')}
-                  className="flex flex-col items-start gap-3 rounded-2xl border-2 border-border hover:border-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-950/20 p-5 transition-all text-left group"
+                  className="flex flex-col items-start gap-3 rounded-2xl border-2 border-border hover:border-teal-400 hover:bg-teal-50 dark:hover:bg-teal-950/20 p-5 transition-all text-left group"
                 >
                   <div className="w-10 h-10 rounded-xl bg-purple-100 dark:bg-purple-900/30 flex items-center justify-center">
                     <Bot className="w-5 h-5 text-purple-600 dark:text-purple-400" />
@@ -429,7 +429,7 @@ export function SetupWizard({ onSave }: SetupWizardProps) {
                     <p className="font-semibold text-sm mb-1">Ollama</p>
                     <p className="text-xs text-muted-foreground">Runs locally. Free, private, no internet needed.</p>
                   </div>
-                  <ChevronRight className="w-4 h-4 text-muted-foreground group-hover:text-indigo-600 mt-auto self-end" />
+                  <ChevronRight className="w-4 h-4 text-muted-foreground group-hover:text-teal-600 mt-auto self-end" />
                 </button>
               </div>
             </div>

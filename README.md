@@ -1,6 +1,13 @@
-# Datagentra — Analista de Datos Autónomo
+<p align="center">
+  <img src="frontend/statics/datagentra.png" alt="Datagentra" width="420"/>
+</p>
 
-Convierte preguntas en lenguaje natural en SQL, gráficos y conclusiones. 100% local con Ollama o en la nube con OpenAI. Sin Docker para la base de datos — todo corre localmente con SQLite.
+<p align="center">
+  Convierte preguntas en lenguaje natural en SQL, gráficos y conclusiones.<br/>
+  100% local con Ollama o en la nube con OpenAI. Sin Docker para la base de datos — todo corre localmente con SQLite.
+</p>
+
+---
 
 ## Características
 
@@ -11,6 +18,24 @@ Convierte preguntas en lenguaje natural en SQL, gráficos y conclusiones. 100% l
 - **Correcciones en lenguaje natural** — describí cómo modificar columnas del CSV antes de confirmar el source
 - **Proveedor LLM configurable** — OpenAI (cloud) u Ollama (local, sin costo)
 - **Schema explorer** — navegación visual del esquema activo en el panel derecho
+- **Tema claro/oscuro** — alternancia con preferencia guardada en `localStorage`
+
+---
+
+## Screenshots
+
+> _Agregá capturas de pantalla aquí para mostrar la interfaz en acción._
+
+<!-- Ejemplo:
+| Tema claro | Tema oscuro |
+|---|---|
+| ![Light](docs/screenshots/light.png) | ![Dark](docs/screenshots/dark.png) |
+
+![Chat con gráfico](docs/screenshots/chat-chart.png)
+![Schema Explorer](docs/screenshots/schema.png)
+-->
+
+---
 
 ## Arquitectura
 
@@ -40,11 +65,15 @@ Convierte preguntas en lenguaje natural en SQL, gráficos y conclusiones. 100% l
 └──────────────────────┘
 ```
 
+---
+
 ## Requisitos Previos
 
 - Python 3.12+ y `uv` (`curl -LsSf https://astral.sh/uv/install.sh | sh`)
 - Node.js 20+
 - OpenAI API Key **o** Ollama instalado localmente
+
+---
 
 ## Inicio Rápido
 
@@ -62,6 +91,8 @@ El script `setup.sh` hace todo automáticamente:
 
 Una vez corriendo, abrí **http://localhost:5173** — el wizard de configuración aparece automáticamente la primera vez.
 
+---
+
 ## Lo que pregunta el setup
 
 | Pregunta | Default |
@@ -70,6 +101,8 @@ Una vez corriendo, abrí **http://localhost:5173** — el wizard de configuraci�
 | URL del backend | http://localhost:8000 |
 
 > La configuración del proveedor LLM (OpenAI o Ollama) se hace directamente desde la UI al iniciar por primera vez.
+
+---
 
 ## Configuración inicial (wizard)
 
@@ -90,8 +123,11 @@ Una vez configurado, podés cambiar proveedor o modelo en cualquier momento desd
 
 ### Cambiar configuración (SettingsModal)
 - Abrí con el ícono ⚙️ (esquina inferior izquierda del sidebar)
-- Si ya tenés OpenAI configurado: la lista de modelos se carga automáticamente con la key guardada, sin necesidad de re-ingresarla
-- Dejá el campo API Key vacío para mantener la key actual; completalo solo si querés cambiarla
+- Al abrir, la lista de modelos **se carga automáticamente** con la key ya guardada — no es necesario re-ingresarla
+- Dejá el campo API Key **vacío** para mantener la key actual; completalo solo si querés cambiarla
+- Seleccioná el modelo deseado y guardá
+
+---
 
 ## Conversaciones
 
@@ -107,11 +143,33 @@ Todo se persiste en `db/conversations.db` (SQLite local).
 
 | Acción | Cómo |
 |---|---|
-| Nueva conversación | Botón `+` en el sidebar o `Nueva` en el header |
+| Nueva conversación | Botón `+` en el sidebar o pantalla de bienvenida |
 | Cambiar conversación | Clic en el nombre en el sidebar |
 | Renombrar | Doble clic sobre el nombre, o ícono ✏️ |
 | Eliminar | Ícono 🗑️ al hacer hover |
 | Título automático | Se asigna desde la primera pregunta |
+
+---
+
+## Identidad Visual
+
+<p align="center">
+  <img src="frontend/statics/logo.png" alt="Logo Datagentra" width="120"/>
+</p>
+
+El tema de color de la interfaz está basado en los colores del logo:
+
+| Color | Hex | Uso |
+|---|---|---|
+| Azul marino profundo | `#0A436D` | Texto principal (tema claro), fondo de tarjetas (tema oscuro) |
+| Teal vibrante | `#00768C` | Primario — botones, selecciones activas, anillos de foco |
+| Verde brillante | `#00FF8C` | Acento — estados activos e interacciones destacadas |
+| Fondo oscuro | `#05243C` | Fondo principal del tema oscuro |
+| Fondo card oscuro | `#0D2F4F` | Cards en tema oscuro |
+
+La preferencia de tema (claro/oscuro) se persiste automáticamente en `localStorage`.
+
+---
 
 ## Variables de Entorno
 
@@ -134,6 +192,8 @@ Todo se persiste en `db/conversations.db` (SQLite local).
 |---|---|---|
 | `VITE_API_URL` | URL del backend | `http://localhost:8000` |
 
+---
+
 ## API Endpoints principales
 
 | Método | Endpoint | Descripción |
@@ -149,6 +209,8 @@ Todo se persiste en `db/conversations.db` (SQLite local).
 | `GET` | `/api/conversations` | Listar conversaciones |
 | `DELETE` | `/api/conversations/{id}` | Eliminar conversación |
 
+---
+
 ## Ejecutar Tests
 
 ```bash
@@ -157,6 +219,8 @@ UV_PROJECT_ENVIRONMENT=.venv_local uv run pytest tests/ -v
 ```
 
 > El `.venv` creado por Docker tiene permisos de root. Usar `UV_PROJECT_ENVIRONMENT=.venv_local` crea un venv propio sin conflictos.
+
+---
 
 ## Estructura del Proyecto
 
@@ -179,11 +243,22 @@ Datagentra/
 │   │   └── llm_provider.py     # Factory Ollama/OpenAI
 │   └── tests/                  # 47 tests unitarios
 └── frontend/
+    ├── statics/
+    │   ├── logo.png            # Logotipo (fondo transparente)
+    │   └── datagentra.png      # Imagotipo logo + texto (fondo transparente)
     └── src/
-        ├── App.tsx             # Layout: sidebar conversations + chat + schema
+        ├── App.tsx             # Layout: sidebar + chat + schema. Tema persistido en localStorage
         ├── hooks/useDatagentra.ts
         └── components/
+            ├── ChatInterface.tsx
+            ├── SchemaExplorer.tsx
+            ├── DataSourcePanel.tsx
+            ├── SetupWizard.tsx
+            ├── SettingsModal.tsx   # Auto-carga modelos con key guardada al abrir
+            └── charts/
 ```
+
+---
 
 ## Modos de LLM
 
@@ -211,6 +286,8 @@ OLLAMA_MODEL=qwen2.5:7b
 
 Modelos recomendados para SQL: `qwen2.5:7b`, `codellama:7b`, `llama3.2:3b`
 
+---
+
 ## Opción Docker (solo app, sin DB externa)
 
 ```bash
@@ -218,6 +295,8 @@ docker compose up --build
 ```
 
 Levanta backend + frontend en contenedores. La base de datos SQLite se monta desde `./db/`.
+
+---
 
 ## Solución de Problemas
 
@@ -227,6 +306,7 @@ Levanta backend + frontend en contenedores. La base de datos SQLite se monta des
 | `Connection refused` en Ollama | Ollama solo escucha en `127.0.0.1`. Ver abajo |
 | `Permission denied` en `.venv` | Usar `UV_PROJECT_ENVIRONMENT=.venv_local uv run ...` |
 | Tests con CORS | Verificar `VITE_API_URL=http://localhost:8000` |
+| Modal no carga modelos | Verificar que el backend esté corriendo y la key esté guardada en `.env` |
 
 ### Ollama accesible desde Docker
 
@@ -241,6 +321,14 @@ sudo systemctl edit ollama
 sudo systemctl daemon-reload && sudo systemctl restart ollama
 ```
 
+---
+
 ## Licencia
 
 MIT
+
+---
+
+<p align="center">
+  <img src="frontend/statics/logo.png" alt="Datagentra" width="60"/>
+</p>

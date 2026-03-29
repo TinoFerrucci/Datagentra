@@ -13,12 +13,12 @@ export function KPICard({ label, value }: KPICardProps) {
   return (
     <div className="relative flex flex-col items-center justify-center rounded-2xl overflow-hidden min-h-[160px] p-8 gap-3">
       {/* Background gradient */}
-      <div className="absolute inset-0 bg-gradient-to-br from-indigo-500/10 via-violet-500/5 to-cyan-500/10" />
+      <div className="absolute inset-0 bg-gradient-to-br from-teal-500/10 via-violet-500/5 to-cyan-500/10" />
       <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_center,hsl(var(--primary)/0.08)_0%,transparent_70%)]" />
 
       {/* Icon */}
-      <div className="relative w-10 h-10 rounded-xl bg-indigo-100 dark:bg-indigo-900/40 flex items-center justify-center">
-        <TrendingUp className="w-5 h-5 text-indigo-600 dark:text-indigo-400" />
+      <div className="relative w-10 h-10 rounded-xl bg-teal-100 dark:bg-teal-900/40 flex items-center justify-center">
+        <TrendingUp className="w-5 h-5 text-teal-600 dark:text-teal-400" />
       </div>
 
       {/* Value */}

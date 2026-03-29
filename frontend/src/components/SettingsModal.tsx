@@ -46,12 +46,13 @@ export function SettingsModal({ current, onSave, onClose }: SettingsModalProps) 
   const [saved, setSaved] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
-  // Auto-load models when already configured with OpenAI
+  // Auto-load models on mount and on provider change
   useEffect(() => {
-    if (provider === 'openai' && current?.provider === 'openai' && openaiModels === null && !apiKey.trim()) {
+    if (provider === 'openai' && openaiModels === null && !apiKey.trim()) {
       fetchCurrentModels()
     }
     if (provider === 'ollama') checkOllama()
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [provider])
 
   const fetchCurrentModels = async () => {
@@ -186,7 +187,7 @@ export function SettingsModal({ current, onSave, onClose }: SettingsModalProps) 
                 className={cn(
                   'flex items-center gap-2.5 px-3 py-2.5 rounded-xl border text-sm font-medium transition-colors',
                   provider === 'openai'
-                    ? 'border-indigo-400 bg-indigo-50 dark:bg-indigo-950/30 text-indigo-700 dark:text-indigo-300'
+                    ? 'border-teal-400 bg-teal-50 dark:bg-teal-950/30 text-teal-700 dark:text-teal-300'
                     : 'border-border hover:bg-muted text-muted-foreground'
                 )}
               >
@@ -198,7 +199,7 @@ export function SettingsModal({ current, onSave, onClose }: SettingsModalProps) 
                 className={cn(
                   'flex items-center gap-2.5 px-3 py-2.5 rounded-xl border text-sm font-medium transition-colors',
                   provider === 'ollama'
-                    ? 'border-indigo-400 bg-indigo-50 dark:bg-indigo-950/30 text-indigo-700 dark:text-indigo-300'
+                    ? 'border-teal-400 bg-teal-50 dark:bg-teal-950/30 text-teal-700 dark:text-teal-300'
                     : 'border-border hover:bg-muted text-muted-foreground'
                 )}
               >
@@ -245,7 +246,7 @@ export function SettingsModal({ current, onSave, onClose }: SettingsModalProps) 
                   className={cn(
                     'w-full py-2.5 rounded-xl font-semibold text-sm transition-colors flex items-center justify-center gap-2',
                     looksLikeKey && !validating
-                      ? 'bg-indigo-600 hover:bg-indigo-700 text-white'
+                      ? 'bg-teal-600 hover:bg-teal-700 text-white'
                       : 'bg-muted text-muted-foreground cursor-not-allowed'
                   )}
                 >
@@ -281,12 +282,12 @@ export function SettingsModal({ current, onSave, onClose }: SettingsModalProps) 
                         className={cn(
                           'w-full flex items-center justify-between rounded-xl border px-4 py-2.5 text-sm transition-colors text-left',
                           selectedOpenaiModel === m.id
-                            ? 'border-indigo-400 bg-indigo-50 dark:bg-indigo-950/30'
+                            ? 'border-teal-400 bg-teal-50 dark:bg-teal-950/30'
                             : 'border-border hover:bg-muted'
                         )}
                       >
                         <span className="font-mono font-medium">{m.id}</span>
-                        {selectedOpenaiModel === m.id && <CheckCircle2 className="w-4 h-4 text-indigo-600 flex-shrink-0" />}
+                        {selectedOpenaiModel === m.id && <CheckCircle2 className="w-4 h-4 text-teal-600 flex-shrink-0" />}
                       </button>
                     ))}
                   </div>
@@ -325,7 +326,7 @@ export function SettingsModal({ current, onSave, onClose }: SettingsModalProps) 
                       className={cn(
                         'w-full flex items-center justify-between rounded-xl border px-4 py-2.5 text-sm transition-colors text-left',
                         selectedOllamaModel === m.name
-                          ? 'border-indigo-400 bg-indigo-50 dark:bg-indigo-950/30'
+                          ? 'border-teal-400 bg-teal-50 dark:bg-teal-950/30'
                           : 'border-border hover:bg-muted'
                       )}
                     >
@@ -366,7 +367,7 @@ export function SettingsModal({ current, onSave, onClose }: SettingsModalProps) 
             className={cn(
               'px-5 py-2 rounded-xl text-sm font-semibold transition-colors flex items-center gap-2',
               canSave && !saving
-                ? 'bg-indigo-600 hover:bg-indigo-700 text-white'
+                ? 'bg-teal-600 hover:bg-teal-700 text-white'
                 : 'bg-muted text-muted-foreground cursor-not-allowed'
             )}
           >

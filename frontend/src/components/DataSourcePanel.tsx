@@ -134,8 +134,8 @@ export function DataSourcePanel({ onUpload, onFix, onConfirm }: DataSourcePanelP
             className={cn(
               'border-2 border-dashed rounded-xl p-6 text-center cursor-pointer transition-colors',
               isDragActive
-                ? 'border-indigo-400 bg-indigo-50 dark:bg-indigo-950/20'
-                : 'border-border hover:border-indigo-300 hover:bg-muted/50'
+                ? 'border-teal-400 bg-teal-50 dark:bg-teal-950/20'
+                : 'border-border hover:border-teal-300 hover:bg-muted/50'
             )}
           >
             <input {...getInputProps()} />
@@ -161,7 +161,7 @@ export function DataSourcePanel({ onUpload, onFix, onConfirm }: DataSourcePanelP
           </div>
           <div className="w-full bg-muted rounded-full h-2">
             <div
-              className="h-2 rounded-full bg-indigo-500 transition-all duration-300"
+              className="h-2 rounded-full bg-teal-500 transition-all duration-300"
               style={{ width: `${progress}%` }}
             />
           </div>
