@@ -554,7 +554,46 @@ Datagentra/
 
 ## LLM Modes
 
-### OpenAI (recommended for quality)
+### Ollama — local, free, no data sent (recommended for privacy)
+
+All models below run **fully on your machine**. None of them require an internet connection after the initial download.
+
+```bash
+# Install Ollama: https://ollama.com/download
+
+# Recommended picks (pull whichever fits your hardware)
+ollama pull qwen3:8b               # Best balance — tools + thinking
+ollama pull qwen3:14b              # Higher quality if you have ≥16 GB RAM
+ollama pull glm-4.7-flash          # Fast, tools + thinking, very capable
+ollama pull nemotron-cascade-2:30b # NVIDIA — strong reasoning, 30B MoE (3B active)
+ollama pull lfm2                   # On-device optimised, tools support
+ollama pull lfm2.5-thinking:1.2b   # Tiny footprint, thinking capable
+ollama pull granite4:3b            # IBM, lightest option with tool support
+```
+
+```env
+LLM_PROVIDER=ollama
+OLLAMA_BASE_URL=http://localhost:11434
+OLLAMA_MODEL=qwen3:8b
+```
+
+Recommended local models for Text-to-SQL (no `cloud` tag — fully offline):
+
+| Model | Sizes available | Capabilities | Min RAM | Notes |
+|---|---|---|---|---|
+| `qwen3` | 0.6b · 1.7b · **4b** · **8b** · **14b** · 30b · 32b | tools · thinking | 4–16 GB | Most popular (25 M pulls), best overall choice |
+| `glm-4.7-flash` | — | tools · thinking | ~6 GB | Fast inference, strong at structured output |
+| `nemotron-cascade-2` | **30b** | tools · thinking | ~20 GB | NVIDIA MoE (only 3B params active), excellent reasoning |
+| `lfm2` | **24b** | tools | ~16 GB | Designed for on-device deployment |
+| `lfm2.5-thinking` | **1.2b** | tools · thinking | ~2 GB | Minimal footprint, surprisingly capable |
+| `granite4` | 350m · 1b · **3b** | tools | ~3 GB | IBM model, ideal for low-resource machines |
+| `olmo-3.1` | **32b** | tools | ~24 GB | Fully open weights (OLMo project) |
+
+> **Tip:** start with `qwen3:8b` — it fits in 8 GB of RAM and handles multi-table SQL well. Scale up to `qwen3:14b` or `nemotron-cascade-2:30b` for more complex analytical queries.
+
+---
+
+### OpenAI (cloud, best quality)
 
 ```env
 LLM_PROVIDER=openai
@@ -562,36 +601,17 @@ OPENAI_API_KEY=sk-...
 OPENAI_MODEL=gpt-4o-mini
 ```
 
-Recommended models by use case:
+Model ranking for data analysis use cases (source: LLM leaderboard — Data Analysis Average score):
 
-| Model | SQL quality | Cost | Use case |
-|---|---|---|---|
-| `gpt-4o` | ⭐⭐⭐⭐⭐ | High | Complex queries, multiple JOINs |
-| `gpt-4o-mini` | ⭐⭐⭐⭐ | Low | General use, good balance |
-| `gpt-3.5-turbo` | ⭐⭐⭐ | Very low | Simple queries |
-
-### Ollama (local, free, no data sent)
-
-```bash
-# Install Ollama: https://ollama.com/download
-ollama pull qwen2.5:7b    # ~4.7 GB — recommended for SQL
-ollama pull codellama:7b  # ~3.8 GB — alternative
-ollama pull llama3.2:3b   # ~2.0 GB — lighter option
-```
-
-```env
-LLM_PROVIDER=ollama
-OLLAMA_BASE_URL=http://localhost:11434
-OLLAMA_MODEL=qwen2.5:7b
-```
-
-Recommended models for Text-to-SQL with Ollama:
-
-| Model | Size | SQL quality | Min RAM |
-|---|---|---|---|
-| `qwen2.5:7b` | ~4.7 GB | ⭐⭐⭐⭐ | 8 GB |
-| `codellama:7b` | ~3.8 GB | ⭐⭐⭐⭐ | 8 GB |
-| `llama3.2:3b` | ~2.0 GB | ⭐⭐⭐ | 4 GB |
+| Model | Data Analysis | Reasoning | Overall | Tier |
+|---|---|---|---|---|
+| `GPT-5.4 Thinking` | 79.3 | 88.1 | 80.3 | 🥇 Best |
+| `GPT-5.2 High` | 78.2 | 83.2 | 74.8 | 🥈 |
+| `GPT-5.2 Codex` | 78.2 | 77.7 | 74.3 | 🥈 |
+| `GPT-5.1 Codex Max High` | 70.1 | 83.7 | 74.0 | High |
+| `GPT-5.4 Mini xHigh` | 71.0 | 72.5 | 67.5 | Balanced |
+| `GPT-5 Mini High` | 55.2 | 68.3 | 65.9 | Economy |
+| `GPT-5.1 No Thinking` | 44.1 | 26.8 | 42.7 | Fast/cheap |
 
 ---
 
