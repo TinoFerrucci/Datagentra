@@ -38,7 +38,7 @@ function AgentMessage({ message }: { message: ChatMessage }) {
       <div className="w-8 h-8 rounded-full bg-teal-100 dark:bg-teal-900/30 flex items-center justify-center flex-shrink-0 mt-1">
         <Bot className="w-4 h-4 text-teal-600 dark:text-teal-400" />
       </div>
-      <div className="flex-1 space-y-4">
+      <div className="flex-1 min-w-0 space-y-4">
         {/* Badges */}
         {r && (
           <div className="flex flex-wrap gap-2">

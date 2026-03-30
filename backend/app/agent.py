@@ -226,9 +226,9 @@ def _suggest_chart(question: str, columns: list[str], rows: list[list]) -> tuple
     prompt = f"""You are a data visualization expert. Given a user question and query results, decide the best chart configuration.
 
 Respond with exactly 4 lines — nothing else:
-Line 1: chart_type  (one of: bar, line, area, pie, metric)
+Line 1: chart_type  (one of: bar, line, area, pie, metric, table, scatter)
 Line 2: title       (3-8 words, Title Case, no punctuation)
-Line 3: x_key       (exact column name for the label axis)
+Line 3: x_key       (exact column name for the label/X axis)
 Line 4: y_keys      (comma-separated exact column names for the value axes, most relevant first, max 3)
 
 Question: "{question}"
@@ -238,30 +238,40 @@ Sample data:
 {sample_str}
 
 Chart type rules:
-- metric → single KPI (1 row, 1 key number)
-- pie    → parts of a whole (≤8 rows, exactly 2 columns)
-- area   → continuous time trend (fill under line)
-- line   → time series or multi-series trend
-- bar    → ranking, comparison, or any other case (default)
+- metric  → single KPI (1 row, 1 key number)
+- pie     → parts of a whole (≤8 rows, exactly 2 columns)
+- area    → continuous time trend (fill under line)
+- line    → time series or multi-series trend
+- scatter → correlation or relationship between two numeric variables
+- table   → list/catalog of items, detail queries, or when there are many text columns and no numeric aggregation is the focus
+- bar     → ranking, comparison, or any other case (default)
 
 Axis rules:
 - x_key must be the column that uniquely identifies each row in the context of the question
   (e.g. for "top products by revenue" → product_name, not category_name or brand_name)
 - y_keys must be the numeric columns the question is asking about
+- for scatter: x_key = first numeric variable, y_keys = second numeric variable
+- for table: x_key = first column, y_keys = remaining columns
 - never use id columns, internal keys, or metadata
 
 Example output for "top 10 products by revenue":
 bar
 Top 10 Products by Revenue
 product_name
-total_revenue, total_orders, total_units_sold"""
+total_revenue, total_orders, total_units_sold
+
+Example output for "list all books by the most prolific author":
+table
+Books by Most Prolific Author
+title
+year, genre"""
 
     raw = llm.invoke(prompt).strip()
     raw = re.sub(r"<think>[\s\S]*?</think>", "", raw, flags=re.IGNORECASE).strip()
     lines = [ln.strip() for ln in raw.splitlines() if ln.strip()]
 
     chart_type = lines[0].lower().split()[0] if lines else "bar"
-    if chart_type not in ("bar", "line", "area", "pie", "metric"):
+    if chart_type not in ("bar", "line", "area", "pie", "metric", "table", "scatter"):
         chart_type = "bar"
 
     chart_title = lines[1] if len(lines) > 1 else question[:60]

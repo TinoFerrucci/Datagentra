@@ -3,6 +3,8 @@ import { BarChartComponent } from './BarChartComponent'
 import { LineChartComponent } from './LineChartComponent'
 import { PieChartComponent } from './PieChartComponent'
 import { KPICard } from './KPICard'
+import { TableComponent } from './TableComponent'
+import { ScatterChartComponent } from './ScatterChartComponent'
 
 interface DynamicChartProps {
   response: AgentResponse
@@ -38,7 +40,15 @@ export function DynamicChart({ response }: DynamicChartProps) {
         />
       )}
 
-      {(chart_type === 'bar' || !['pie', 'line', 'area', 'metric'].includes(chart_type)) && (
+      {chart_type === 'scatter' && (
+        <ScatterChartComponent columns={columns} rows={rows} chartConfig={chart_config} />
+      )}
+
+      {chart_type === 'table' && (
+        <TableComponent columns={columns} rows={rows} />
+      )}
+
+      {(chart_type === 'bar' || !['pie', 'line', 'area', 'metric', 'scatter', 'table'].includes(chart_type)) && (
         <BarChartComponent columns={columns} rows={rows} chartConfig={chart_config} />
       )}
     </div>

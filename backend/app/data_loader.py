@@ -227,7 +227,10 @@ def load_sqlite(content: bytes, filename: str) -> dict:
 # ---------------------------------------------------------------------------
 
 def apply_correction(session_id: str, prompt: str) -> dict:
-    """Apply a natural-language correction to a CSV dataframe in the session."""
+    """Apply a natural-language correction to a CSV dataframe using the LLM."""
+    import json
+    import re
+
     session = get_session(session_id)
     if session is None:
         raise ValidationError(f"Session '{session_id}' not found.")
@@ -235,51 +238,76 @@ def apply_correction(session_id: str, prompt: str) -> dict:
         raise ValidationError("Corrections are only supported for CSV sources.")
 
     df: pd.DataFrame = session["df"].copy()
-    prompt_lower = prompt.lower()
+    columns = list(df.columns)
 
-    # Simple rule-based transformations
-    if "rename" in prompt_lower or "renombra" in prompt_lower:
-        import re
-        # Patterns: "rename col1 to revenue", "renombra col1 a revenue"
-        m = re.search(r"(?:rename|renombra)\s+['\"]?(\w+)['\"]?\s+(?:to|a|as)\s+['\"]?(\w+)['\"]?", prompt_lower)
-        if m:
-            old_name, new_name = m.group(1), m.group(2)
-            matching = [c for c in df.columns if c.lower() == old_name]
-            if matching:
-                df = df.rename(columns={matching[0]: new_name})
+    from app.llm_provider import get_llm
+    llm = get_llm()
 
-    elif "drop" in prompt_lower or "elimina" in prompt_lower or "remove" in prompt_lower or "borra" in prompt_lower:
-        import re
-        m = re.search(r"(?:drop|elimina|remove|borra)\s+(?:columna|column)?\s+['\"]?(\w[\w\s]*?)['\"]?(?:\s|$)", prompt_lower)
-        if m:
-            col_name = m.group(1).strip()
-            matching = [c for c in df.columns if c.lower() == col_name.lower()]
-            if matching:
-                df = df.drop(columns=matching)
+    llm_prompt = f"""You are a data transformation assistant. The user wants to modify a CSV dataset.
 
-    elif "convert" in prompt_lower or "convierte" in prompt_lower or "fecha" in prompt_lower or "datetime" in prompt_lower or "date" in prompt_lower:
-        import re
-        m = re.search(r"(?:convert|convierte|column)?\s*['\"]?(\w+)['\"]?\s*(?:to|a|como)?\s*(?:datetime|date|fecha)", prompt_lower)
-        if m:
-            col_name = m.group(1).strip()
-            matching = [c for c in df.columns if c.lower() == col_name.lower()]
-            if matching:
-                try:
-                    df[matching[0]] = pd.to_datetime(df[matching[0]], errors="coerce")
-                except Exception:
-                    pass
+Current columns: {columns}
 
-    elif "fillna" in prompt_lower or "fill" in prompt_lower or "rellena" in prompt_lower:
-        import re
-        m = re.search(r"(?:fill|rellena)\s+['\"]?(\w+)['\"]?\s+(?:with|con)\s+(.+?)$", prompt_lower)
-        if m:
-            col_name, fill_val = m.group(1).strip(), m.group(2).strip()
-            matching = [c for c in df.columns if c.lower() == col_name.lower()]
-            if matching:
-                try:
-                    df[matching[0]] = df[matching[0]].fillna(fill_val)
-                except Exception:
-                    pass
+User instruction: "{prompt}"
+
+Respond with exactly one JSON object describing the transformation. No extra text, no markdown.
+
+Supported actions:
+- {{"action": "rename", "old_name": "<exact column name from the list>", "new_name": "<new name>"}}
+- {{"action": "drop", "column": "<exact column name from the list>"}}
+- {{"action": "convert_date", "column": "<exact column name from the list>"}}
+- {{"action": "fillna", "column": "<exact column name from the list>", "value": "<fill value>"}}
+- {{"action": "unsupported", "reason": "<brief explanation in the same language as the instruction>"}}
+
+JSON:"""
+
+    raw = llm.invoke(llm_prompt).strip()
+    raw = re.sub(r"<think>[\s\S]*?</think>", "", raw, flags=re.IGNORECASE).strip()
+
+    match = re.search(r"\{.*\}", raw, re.DOTALL)
+    if not match:
+        raise ValidationError("Could not interpret the instruction. Please rephrase and try again.")
+
+    try:
+        action = json.loads(match.group())
+    except json.JSONDecodeError:
+        raise ValidationError("Could not interpret the instruction. Please rephrase and try again.")
+
+    action_type = action.get("action")
+
+    if action_type == "rename":
+        old_name = action.get("old_name", "")
+        new_name = action.get("new_name", "")
+        matching = [c for c in df.columns if c.lower() == old_name.lower()]
+        if matching:
+            df = df.rename(columns={matching[0]: new_name})
+
+    elif action_type == "drop":
+        col_name = action.get("column", "")
+        matching = [c for c in df.columns if c.lower() == col_name.lower()]
+        if matching:
+            df = df.drop(columns=matching)
+
+    elif action_type == "convert_date":
+        col_name = action.get("column", "")
+        matching = [c for c in df.columns if c.lower() == col_name.lower()]
+        if matching:
+            try:
+                df[matching[0]] = pd.to_datetime(df[matching[0]], errors="coerce")
+            except Exception:
+                pass
+
+    elif action_type == "fillna":
+        col_name = action.get("column", "")
+        fill_val = action.get("value", "")
+        matching = [c for c in df.columns if c.lower() == col_name.lower()]
+        if matching:
+            try:
+                df[matching[0]] = df[matching[0]].fillna(fill_val)
+            except Exception:
+                pass
+
+    elif action_type == "unsupported":
+        raise ValidationError(action.get("reason", "Unsupported operation."))
 
     # Update session
     session["df"] = df

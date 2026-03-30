@@ -37,9 +37,9 @@ All in a single chat interface. No SQL writing, no database clients, no CSV expo
 - **Text-to-SQL with retries** — if the SQL fails, the agent analyses the error and regenerates the query automatically (up to 2 retries)
 - **Contextual memory per conversation** — the agent remembers the last 6 questions and answers within the same conversation, enabling natural follow-up questions ("and of those, how many are from overseas?")
 - **Persistent history** — every conversation is saved in SQLite; create, rename, switch, and delete conversations from the sidebar
-- **Automatic charts** — bar, line, area, pie, or KPI card based on the data returned by the query
+- **Automatic charts** — bar, line, area, pie, scatter, data table, or KPI card — chosen automatically based on the query and data shape
 - **File upload** — upload a CSV or SQLite file and query it directly with natural language
-- **Natural language corrections** — before confirming a CSV, you can ask things like "rename column `sale_date` to `date`" or "drop the `internal_id` column"
+- **Natural language corrections** — before confirming a CSV, ask things like `"rename column sale_date to date"` or `"drop the internal_id column"` — interpreted by the LLM, so any phrasing works
 - **Configurable LLM provider** — OpenAI (cloud, recommended) or Ollama (local, free, no data sent to third parties)
 - **Schema Explorer** — side panel with the full structure of the active database: tables, columns, types, PKs, FKs, and relationships
 - **Light/dark theme** — with preference saved in `localStorage`
@@ -49,16 +49,29 @@ All in a single chat interface. No SQL writing, no database clients, no CSV expo
 
 ## Screenshots
 
-> _Add screenshots here to show the interface in action._
+**Bar chart** — ranking query rendered automatically as a horizontal bar chart
 
-<!-- Example:
-| Light theme | Dark theme |
-|---|---|
-| ![Light](docs/screenshots/light.png) | ![Dark](docs/screenshots/dark.png) |
+![Bar chart](docs/screenshoots/bar.png)
 
-![Chat with chart](docs/screenshots/chat-chart.png)
-![Schema Explorer](docs/screenshots/schema.png)
--->
+**Time series** — date-based query rendered as a line/area chart
+
+![Timeline](docs/screenshoots/timeline.png)
+
+**Pie chart** — distribution query rendered as a pie chart
+
+![Pie chart](docs/screenshoots/pie.png)
+
+**KPI card** — single-metric query rendered as a KPI card
+
+![KPI card](docs/screenshoots/kpi.png)
+
+**Contextual memory** — follow-up question referencing the previous result without repeating context
+
+![Contextual follow-up](docs/screenshoots/multi_query.png)
+
+**SQL used** — the exact query the agent generated, visible on demand
+
+![SQL view](docs/screenshoots/multi_query_sql.png)
 
 ---
 
