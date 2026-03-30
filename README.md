@@ -556,19 +556,19 @@ Datagentra/
 
 ### Ollama — local, free, no data sent (recommended for privacy)
 
-All models below run **fully on your machine**. None of them require an internet connection after the initial download.
+All models below run **fully on your machine**. None require an internet connection after the initial download.
 
 ```bash
 # Install Ollama: https://ollama.com/download
 
-# Recommended picks (pull whichever fits your hardware)
-ollama pull qwen3:8b               # Best balance — tools + thinking
-ollama pull qwen3:14b              # Higher quality if you have ≥16 GB RAM
-ollama pull glm-4.7-flash          # Fast, tools + thinking, very capable
-ollama pull nemotron-cascade-2:30b # NVIDIA — strong reasoning, 30B MoE (3B active)
-ollama pull lfm2                   # On-device optimised, tools support
-ollama pull lfm2.5-thinking:1.2b   # Tiny footprint, thinking capable
-ollama pull granite4:3b            # IBM, lightest option with tool support
+# Pull whichever fits your hardware — sorted from lightest to heaviest
+ollama pull lfm2.5-thinking:1.2b   # ~1 GB  — tiny, thinking capable
+ollama pull granite4:3b            # ~2 GB  — IBM, lightest with tool support
+ollama pull qwen3:8b               # ~5 GB  — best balance (recommended start)
+ollama pull qwen3.5:9b             # ~6 GB  — latest Qwen, tools + thinking
+ollama pull glm-4.7-flash          # ~19 GB — fast inference, strong reasoning
+ollama pull nemotron-cascade-2:30b # ~20 GB — NVIDIA MoE (only 3B active params)
+ollama pull qwen3:32b              # ~20 GB — high quality, fully local
 ```
 
 ```env
@@ -577,19 +577,25 @@ OLLAMA_BASE_URL=http://localhost:11434
 OLLAMA_MODEL=qwen3:8b
 ```
 
-Recommended local models for Text-to-SQL (no `cloud` tag — fully offline):
+Models available locally (excludes cloud-only entries):
 
-| Model | Sizes available | Capabilities | Min RAM | Notes |
-|---|---|---|---|---|
-| `qwen3` | 0.6b · 1.7b · **4b** · **8b** · **14b** · 30b · 32b | tools · thinking | 4–16 GB | Most popular (25 M pulls), best overall choice |
-| `glm-4.7-flash` | — | tools · thinking | ~6 GB | Fast inference, strong at structured output |
-| `nemotron-cascade-2` | **30b** | tools · thinking | ~20 GB | NVIDIA MoE (only 3B params active), excellent reasoning |
-| `lfm2` | **24b** | tools | ~16 GB | Designed for on-device deployment |
-| `lfm2.5-thinking` | **1.2b** | tools · thinking | ~2 GB | Minimal footprint, surprisingly capable |
-| `granite4` | 350m · 1b · **3b** | tools | ~3 GB | IBM model, ideal for low-resource machines |
-| `olmo-3.1` | **32b** | tools | ~24 GB | Fully open weights (OLMo project) |
+| Model | Sizes | Capabilities | Notes |
+|---|---|---|---|
+| `qwen3` | 0.6b · 1.7b · **4b** · **8b** · **14b** · 30b · 32b | tools · thinking | Most popular (25 M+ pulls) — best all-round choice |
+| `qwen3.5` | 0.8b · 2b · **4b** · **9b** · 27b · 35b · 122b | tools · thinking | Latest Qwen generation, multimodal |
+| `glm-4.7-flash` | 30b class | tools · thinking | Fast, strong at structured output (933 K pulls) |
+| `nemotron-cascade-2` | **30b** | tools · thinking | NVIDIA MoE — only 3B params active, excellent reasoning |
+| `nemotron-3-nano` | **4b** · 30b | tools · thinking | NVIDIA — efficient, updated recently |
+| `lfm2` | **24b** | tools | Liquid AI — designed for on-device deployment (1 M pulls) |
+| `lfm2.5-thinking` | **1.2b** | tools · thinking | Minimal footprint, thinking capable (1 M pulls) |
+| `granite4` | 350m · 1b · **3b** | tools | IBM — lightest option with tool support (1 M pulls) |
+| `qwen3-coder-next` | — | tools | Alibaba — coding and agentic workflows (930 K pulls) |
+| `ministral-3` | **3b** · 8b · 14b | tools | Mistral edge model, vision capable |
+| `qwen3-next` | **80b** | tools · thinking | High-end quality, strong reasoning |
+| `olmo-3.1` | **32b** | tools | Fully open weights — OLMo project |
+| `rnj-1` | **8b** | tools | Essential AI — code + STEM focused |
 
-> **Tip:** start with `qwen3:8b` — it fits in 8 GB of RAM and handles multi-table SQL well. Scale up to `qwen3:14b` or `nemotron-cascade-2:30b` for more complex analytical queries.
+> **Tip:** start with `qwen3:8b` — fits in 8 GB RAM and handles multi-table SQL well. Scale up to `qwen3:14b`, `qwen3.5:9b`, or `nemotron-cascade-2:30b` for more complex analytical queries.
 
 ---
 
