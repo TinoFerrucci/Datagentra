@@ -148,7 +148,10 @@ def test_upload_fix_renames_column(client):
     assert upload_resp.status_code == 200
     session_id = upload_resp.json()["session_id"]
 
-    fix_resp = client.post("/api/upload/fix", json={"session_id": session_id, "prompt": "rename col1 to revenue"})
+    mock_llm = MagicMock()
+    mock_llm.invoke.return_value = '{"action": "rename", "old_name": "col1", "new_name": "revenue"}'
+    with patch("app.llm_provider._llm_instance", mock_llm):
+        fix_resp = client.post("/api/upload/fix", json={"session_id": session_id, "prompt": "rename col1 to revenue"})
     assert fix_resp.status_code == 200
     data = fix_resp.json()
     assert "revenue" in data["columns_info"]

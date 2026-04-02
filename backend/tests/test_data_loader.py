@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import io
 import sqlite3
+from unittest.mock import MagicMock, patch
 
 import pandas as pd
 import pytest
@@ -107,16 +108,26 @@ def _make_rename_session():
     return result["session_id"]
 
 
+def _mock_llm(response: str) -> MagicMock:
+    mock = MagicMock()
+    mock.invoke.return_value = response
+    return mock
+
+
 def test_correction_rename_column():
     session_id = _make_rename_session()
-    result = apply_correction(session_id, "rename col1 to revenue")
+    llm = _mock_llm('{"action": "rename", "old_name": "col1", "new_name": "revenue"}')
+    with patch("app.llm_provider._llm_instance", llm):
+        result = apply_correction(session_id, "rename col1 to revenue")
     assert "revenue" in result["columns_info"]
     assert "col1" not in result["columns_info"]
 
 
 def test_correction_rename_spanish():
     session_id = _make_rename_session()
-    result = apply_correction(session_id, "renombra col1 a ingresos")
+    llm = _mock_llm('{"action": "rename", "old_name": "col1", "new_name": "ingresos"}')
+    with patch("app.llm_provider._llm_instance", llm):
+        result = apply_correction(session_id, "renombra col1 a ingresos")
     assert "ingresos" in result["columns_info"]
 
 
@@ -131,5 +142,7 @@ def test_correction_drop_column():
     df.to_csv(buf, index=False)
     result = load_csv(buf.getvalue(), "drop_test.csv")
     session_id = result["session_id"]
-    result2 = apply_correction(session_id, "elimina columna unnamed_0")
+    llm = _mock_llm('{"action": "drop", "column": "unnamed_0"}')
+    with patch("app.llm_provider._llm_instance", llm):
+        result2 = apply_correction(session_id, "elimina columna unnamed_0")
     assert "unnamed_0" not in result2["columns_info"]

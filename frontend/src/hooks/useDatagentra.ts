@@ -17,7 +17,7 @@ export interface AgentResponse {
   columns: string[]
   rows: (string | number | null)[][]
   summary: string
-  chart_type: 'bar' | 'line' | 'area' | 'pie' | 'metric'
+  chart_type: 'bar' | 'line' | 'area' | 'pie' | 'metric' | 'scatter' | 'table'
   chart_config: ChartConfig
   chart_title: string
   source: string
@@ -31,6 +31,8 @@ export interface ChatMessage {
   content: string
   response?: AgentResponse
   timestamp: Date
+  isStreaming?: boolean
+  streamingStep?: string
 }
 
 export interface Conversation {
@@ -256,7 +258,6 @@ export function useDatagentra() {
   // ---------------------------------------------------------------------------
 
   const ask = useCallback(async (question: string) => {
-    // Optimistically add user message
     const userMsg: ChatMessage = {
       id: crypto.randomUUID(),
       type: 'user',
@@ -265,6 +266,8 @@ export function useDatagentra() {
     }
     setMessages((prev) => [...prev, userMsg])
     setIsLoading(true)
+
+    const agentId = crypto.randomUUID()
 
     try {
       const body: Record<string, unknown> = { question }
@@ -275,7 +278,7 @@ export function useDatagentra() {
         body.conversation_id = activeConversationId
       }
 
-      const res = await fetch(`${API_URL}/api/ask`, {
+      const res = await fetch(`${API_URL}/api/ask/stream`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),
@@ -286,46 +289,101 @@ export function useDatagentra() {
         throw new Error(err.detail || 'Unknown error')
       }
 
-      const data: AgentResponse & { conversation_id: string } = await res.json()
-      const { conversation_id, ...agentResponse } = data
-
-      const agentMsg: ChatMessage = {
-        id: crypto.randomUUID(),
+      // Connection established — replace spinner with streaming agent message
+      setIsLoading(false)
+      setMessages((prev) => [...prev, {
+        id: agentId,
         type: 'agent',
-        content: data.summary,
-        response: agentResponse,
+        content: '',
+        isStreaming: true,
+        streamingStep: 'Generating SQL...',
         timestamp: new Date(),
-      }
-      setMessages((prev) => [...prev, agentMsg])
+      }])
 
-      // Update conversation state
-      if (conversation_id !== activeConversationId) {
-        setActiveConversationId(conversation_id)
-      }
-      // Refresh conversation list (title may have been auto-set)
-      setConversations((prev) => {
-        const exists = prev.find((c) => c.id === conversation_id)
-        if (!exists) {
-          fetchConversations()
-          return prev
+      const reader = res.body!.getReader()
+      const decoder = new TextDecoder()
+      let buffer = ''
+      let summary = ''
+      let partialResponse: Partial<AgentResponse> = {}
+
+      while (true) {
+        const { done, value } = await reader.read()
+        if (done) break
+        buffer += decoder.decode(value, { stream: true })
+        const lines = buffer.split('\n')
+        buffer = lines.pop() ?? ''
+
+        for (const line of lines) {
+          const trimmed = line.trim()
+          if (!trimmed) continue
+
+          const event = JSON.parse(trimmed)
+
+          if (event.event === 'sql') {
+            partialResponse = { ...partialResponse, sql: event.sql }
+            setMessages((prev) => prev.map((m) => m.id === agentId
+              ? { ...m, streamingStep: 'Running query...', response: partialResponse as AgentResponse }
+              : m))
+          } else if (event.event === 'data') {
+            partialResponse = { ...partialResponse, columns: event.columns, rows: event.rows }
+            setMessages((prev) => prev.map((m) => m.id === agentId
+              ? { ...m, streamingStep: `Analysing ${event.rows.length} rows...`, response: partialResponse as AgentResponse }
+              : m))
+          } else if (event.event === 'summary_chunk') {
+            summary += event.chunk
+            setMessages((prev) => prev.map((m) => m.id === agentId
+              ? { ...m, content: summary, streamingStep: 'Writing analysis...' }
+              : m))
+          } else if (event.event === 'chart') {
+            partialResponse = {
+              ...partialResponse,
+              chart_type: event.chart_type,
+              chart_config: event.chart_config,
+              chart_title: event.chart_title,
+            }
+            setMessages((prev) => prev.map((m) => m.id === agentId
+              ? { ...m, response: partialResponse as AgentResponse }
+              : m))
+          } else if (event.event === 'done') {
+            const finalResponse: AgentResponse = {
+              question: event.question,
+              sql: event.sql,
+              columns: event.columns,
+              rows: event.rows,
+              summary: event.summary,
+              chart_type: event.chart_type,
+              chart_config: event.chart_config,
+              chart_title: event.chart_title,
+              source: event.source,
+              llm_provider: event.llm_provider,
+              llm_model: event.llm_model,
+            }
+            setMessages((prev) => prev.map((m) => m.id === agentId
+              ? { ...m, isStreaming: false, streamingStep: undefined, content: event.summary, response: finalResponse }
+              : m))
+            const convId: string = event.conversation_id
+            if (convId !== activeConversationId) setActiveConversationId(convId)
+            fetchConversations()
+          } else if (event.event === 'error') {
+            throw new Error(event.detail)
+          }
         }
-        // Bump updated_at and increment message_count
-        return prev.map((c) =>
-          c.id === conversation_id
-            ? { ...c, updated_at: new Date().toISOString(), message_count: c.message_count + 2 }
-            : c
-        )
-      })
-      // Refresh title (auto-titled on first question)
-      fetchConversations()
-    } catch (err) {
-      const errMsg: ChatMessage = {
-        id: crypto.randomUUID(),
-        type: 'error',
-        content: err instanceof Error ? err.message : 'Something went wrong',
-        timestamp: new Date(),
       }
-      setMessages((prev) => [...prev, errMsg])
+    } catch (err) {
+      setMessages((prev) => {
+        const hasPlaceholder = prev.some((m) => m.id === agentId)
+        if (hasPlaceholder) {
+          return prev.map((m) => m.id === agentId
+            ? { ...m, type: 'error' as const, content: err instanceof Error ? err.message : 'Something went wrong', isStreaming: false, streamingStep: undefined }
+            : m)
+        }
+        return [...prev, {
+          id: crypto.randomUUID(),
+          type: 'error' as const,
+          content: err instanceof Error ? err.message : 'Something went wrong',
+          timestamp: new Date(),
+        }]
+      })
     } finally {
       setIsLoading(false)
     }

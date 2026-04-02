@@ -24,6 +24,11 @@ class OllamaProvider:
         result = self._llm.invoke(prompt)
         return result if isinstance(result, str) else str(result)
 
+    def stream(self, prompt: str):
+        """Yield text chunks as they are generated."""
+        for chunk in self._llm.stream(prompt):
+            yield chunk if isinstance(chunk, str) else str(chunk)
+
 
 class OpenAIProvider:
     def __init__(self, api_key: str, model: str) -> None:
@@ -36,6 +41,13 @@ class OpenAIProvider:
     def invoke(self, prompt: str) -> str:
         result = self._llm.invoke(prompt)
         return result.content if hasattr(result, "content") else str(result)
+
+    def stream(self, prompt: str):
+        """Yield text chunks as they are generated."""
+        for chunk in self._llm.stream(prompt):
+            content = chunk.content if hasattr(chunk, "content") else str(chunk)
+            if content:
+                yield content
 
 
 def get_llm_provider() -> OllamaProvider | OpenAIProvider:

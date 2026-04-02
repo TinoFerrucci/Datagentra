@@ -1,27 +1,51 @@
 """FastAPI application — all endpoints."""
 from __future__ import annotations
 
+import asyncio
+import json
 import os
-from typing import Optional
+import re
+import threading
+from typing import Any, Optional
 
-from fastapi import FastAPI, File, HTTPException, UploadFile
+from fastapi import FastAPI, File, HTTPException, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
+from slowapi import Limiter, _rate_limit_exceeded_handler
+from slowapi.errors import RateLimitExceeded
+from slowapi.util import get_remote_address
 
 from app import conversations as conv
 from app import data_loader as dl
-from app.agent import run_pipeline
-from app.database import get_schema_info, readonly_engine
+from app.agent import (
+    MAX_RETRIES,
+    _build_summary_prompt,
+    _execute_sql,
+    _fix_sql,
+    _generate_sql,
+    _get_db_type,
+    _serialize_rows,
+    _suggest_chart,
+    run_pipeline,
+)
+from app.database import get_schema_ddl, get_schema_info, readonly_engine
+from app.llm_provider import get_llm
 
 # ---------------------------------------------------------------------------
 # App setup
 # ---------------------------------------------------------------------------
+
+limiter = Limiter(key_func=get_remote_address)
 
 app = FastAPI(
     title="Datagentra API",
     description="Autonomous Data Analyst — Text-to-SQL with LLM",
     version="0.1.0",
 )
+
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
 app.add_middleware(
     CORSMiddleware,
@@ -44,6 +68,26 @@ _active_source: dict = {"id": "sqlite_default", "type": "sqlite"}
 # ---------------------------------------------------------------------------
 # Models
 # ---------------------------------------------------------------------------
+
+class ChartConfig(BaseModel):
+    x_key: str = ""
+    y_keys: list[str] = []
+
+
+class AskResponse(BaseModel):
+    question: str
+    sql: str
+    columns: list[str]
+    rows: list[list[Any]]
+    summary: str
+    chart_type: str
+    chart_config: ChartConfig
+    chart_title: str
+    source: str
+    llm_provider: str
+    llm_model: str
+    conversation_id: str
+
 
 class AskRequest(BaseModel):
     question: str
@@ -81,8 +125,9 @@ async def health():
 
 # ------ Ask endpoint ------
 
-@app.post("/api/ask")
-async def ask(req: AskRequest):
+@app.post("/api/ask", response_model=AskResponse)
+@limiter.limit("10/minute")
+async def ask(request: Request, req: AskRequest):
     """Main pipeline: natural language → SQL → results → chart."""
     try:
         session_id = req.session_id or (
@@ -110,6 +155,140 @@ async def ask(req: AskRequest):
 
     result["conversation_id"] = conv_id
     return result
+
+
+# ------ Streaming ask endpoint ------
+
+@app.post("/api/ask/stream")
+@limiter.limit("10/minute")
+async def ask_stream(request: Request, req: AskRequest):
+    """Streaming pipeline: yields NDJSON events as each step completes.
+
+    Events:
+      {"event": "sql",          "sql": "..."}
+      {"event": "data",         "columns": [...], "rows": [...]}
+      {"event": "summary_chunk","chunk": "..."}
+      {"event": "chart",        "chart_type": "...", "chart_config": {...}, "chart_title": "..."}
+      {"event": "done",         ...full result + "conversation_id"}
+      {"event": "error",        "detail": "..."}
+    """
+    async def generate():
+        try:
+            session_id = req.session_id or (
+                _active_source.get("id") if _active_source["type"] not in ("postgres", "sqlite") else None
+            )
+            history = conv.get_recent_history(req.conversation_id) if req.conversation_id else []
+
+            if session_id:
+                from app.data_loader import get_engine_for_session
+                engine = get_engine_for_session(session_id) or readonly_engine
+            else:
+                engine = readonly_engine
+
+            db_type = _get_db_type(engine)
+            ddl = await asyncio.to_thread(get_schema_ddl, engine)
+
+            # Step 1: Generate SQL
+            sql = await asyncio.to_thread(_generate_sql, req.question, ddl, db_type, history)
+            yield json.dumps({"event": "sql", "sql": sql}) + "\n"
+
+            # Step 2: Execute with retries
+            columns: list[str] = []
+            rows: list[list] = []
+            last_error = ""
+            for attempt in range(MAX_RETRIES + 1):
+                try:
+                    columns, rows = await asyncio.to_thread(_execute_sql, sql, engine)
+                    break
+                except PermissionError as exc:
+                    yield json.dumps({"event": "error", "detail": str(exc)}) + "\n"
+                    return
+                except Exception as exc:
+                    last_error = str(exc)
+                    if attempt < MAX_RETRIES:
+                        sql = await asyncio.to_thread(_fix_sql, sql, last_error, req.question, ddl, db_type)
+                        yield json.dumps({"event": "sql", "sql": sql}) + "\n"
+                    else:
+                        yield json.dumps({"event": "error", "detail": f"Failed after {MAX_RETRIES} retries: {last_error}"}) + "\n"
+                        return
+
+            serialized_rows = _serialize_rows(rows)
+            yield json.dumps({"event": "data", "columns": columns, "rows": serialized_rows}) + "\n"
+
+            # Step 3: Summary — stream chunks via thread + queue
+            llm = get_llm()
+            summary_prompt = _build_summary_prompt(req.question, columns, rows)
+            summary = ""
+
+            chunk_queue: asyncio.Queue[str | None] = asyncio.Queue()
+            loop = asyncio.get_running_loop()
+
+            def _produce_summary() -> None:
+                try:
+                    if hasattr(llm, "stream"):
+                        for raw in llm.stream(summary_prompt):
+                            chunk = raw if isinstance(raw, str) else (
+                                raw.content if hasattr(raw, "content") else str(raw)
+                            )
+                            if chunk:
+                                loop.call_soon_threadsafe(chunk_queue.put_nowait, chunk)
+                    else:
+                        text = llm.invoke(summary_prompt)
+                        loop.call_soon_threadsafe(chunk_queue.put_nowait, text)
+                except Exception as exc:
+                    loop.call_soon_threadsafe(chunk_queue.put_nowait, f"\n[Error: {exc}]")
+                finally:
+                    loop.call_soon_threadsafe(chunk_queue.put_nowait, None)
+
+            t = threading.Thread(target=_produce_summary, daemon=True)
+            t.start()
+
+            while True:
+                chunk = await chunk_queue.get()
+                if chunk is None:
+                    break
+                summary += chunk
+                yield json.dumps({"event": "summary_chunk", "chunk": chunk}) + "\n"
+
+            summary = re.sub(r"<think>[\s\S]*?</think>", "", summary, flags=re.IGNORECASE).strip()
+
+            # Step 4: Chart suggestion
+            chart_type, chart_config, chart_title = await asyncio.to_thread(
+                _suggest_chart, req.question, columns, rows
+            )
+            yield json.dumps({"event": "chart", "chart_type": chart_type, "chart_config": chart_config, "chart_title": chart_title}) + "\n"
+
+            # Persist to conversation history
+            conv_id = req.conversation_id
+            if conv_id is None:
+                conversation = await asyncio.to_thread(conv.create_conversation)
+                conv_id = conversation["id"]
+            await asyncio.to_thread(conv.auto_title, conv_id, req.question)
+            await asyncio.to_thread(conv.add_message, conv_id, "user", req.question)
+
+            full_result: dict = {
+                "question": req.question,
+                "sql": sql,
+                "columns": columns,
+                "rows": serialized_rows,
+                "summary": summary,
+                "chart_type": chart_type,
+                "chart_config": chart_config,
+                "chart_title": chart_title,
+                "source": session_id or "sqlite_default",
+                "llm_provider": llm.provider_name,
+                "llm_model": llm.model,
+            }
+            await asyncio.to_thread(conv.add_message, conv_id, "agent", summary, full_result)
+
+            yield json.dumps({"event": "done", **full_result, "conversation_id": conv_id}) + "\n"
+
+        except PermissionError as exc:
+            yield json.dumps({"event": "error", "detail": str(exc)}) + "\n"
+        except Exception as exc:
+            yield json.dumps({"event": "error", "detail": str(exc)}) + "\n"
+
+    return StreamingResponse(generate(), media_type="application/x-ndjson")
 
 
 # ------ Conversation endpoints ------

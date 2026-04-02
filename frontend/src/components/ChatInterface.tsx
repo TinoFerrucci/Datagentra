@@ -3,7 +3,7 @@ import ReactMarkdown from 'react-markdown'
 import { Send, Loader2, Bot, User, ChevronDown, ChevronUp, Database, Cpu, Plus } from 'lucide-react'
 import { SyntaxHighlighter } from './SyntaxHighlighter'
 import { DynamicChart } from './charts/DynamicChart'
-import type { ChatMessage, LLMInfo } from '@/hooks/useDatagentra'
+import type { AgentResponse, ChatMessage, LLMInfo } from '@/hooks/useDatagentra'
 import { cn } from '@/lib/utils'
 
 interface ChatInterfaceProps {
@@ -40,33 +40,48 @@ function AgentMessage({ message }: { message: ChatMessage }) {
       </div>
       <div className="flex-1 min-w-0 space-y-4">
         {/* Badges */}
-        {r && (
+        {r?.source && (
           <div className="flex flex-wrap gap-2">
             <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-secondary text-secondary-foreground border">
               <Database className="w-3 h-3" />
               {r.source === 'sqlite_default' ? 'E-commerce' : r.source === 'postgres_default' ? 'PostgreSQL' : r.source}
             </span>
-            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-teal-100 dark:bg-teal-900/30 text-teal-700 dark:text-teal-300 border border-teal-200 dark:border-teal-800">
-              <Cpu className="w-3 h-3" />
-              {r.llm_provider === 'ollama' ? 'Local' : 'OpenAI'} · {r.llm_model}
-            </span>
+            {r.llm_provider && (
+              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-teal-100 dark:bg-teal-900/30 text-teal-700 dark:text-teal-300 border border-teal-200 dark:border-teal-800">
+                <Cpu className="w-3 h-3" />
+                {r.llm_provider === 'ollama' ? 'Local' : 'OpenAI'} · {r.llm_model}
+              </span>
+            )}
+          </div>
+        )}
+
+        {/* Streaming step indicator */}
+        {message.isStreaming && message.streamingStep && (
+          <div className="flex items-center gap-2 text-muted-foreground text-sm">
+            <Loader2 className="w-3.5 h-3.5 animate-spin flex-shrink-0" />
+            <span>{message.streamingStep}</span>
           </div>
         )}
 
         {/* Summary */}
-        <div className="prose prose-sm dark:prose-invert max-w-none">
-          <ReactMarkdown>{message.content}</ReactMarkdown>
-        </div>
+        {message.content && (
+          <div className="prose prose-sm dark:prose-invert max-w-none">
+            <ReactMarkdown>{message.content}</ReactMarkdown>
+            {message.isStreaming && (
+              <span className="inline-block w-1.5 h-4 bg-current animate-pulse ml-0.5 align-middle opacity-70" />
+            )}
+          </div>
+        )}
 
-        {/* Chart */}
-        {r && r.rows.length > 0 && (
+        {/* Chart — only render once chart config is available */}
+        {r?.rows && r.rows.length > 0 && r.chart_type && r.chart_config && (
           <div className="rounded-xl border bg-card p-4">
-            <DynamicChart response={r} />
+            <DynamicChart response={r as AgentResponse} />
           </div>
         )}
 
         {/* SQL accordion */}
-        {r && (
+        {r?.sql && (
           <div className="rounded-lg border overflow-hidden">
             <button
               onClick={() => setShowSql(!showSql)}
@@ -84,7 +99,7 @@ function AgentMessage({ message }: { message: ChatMessage }) {
         )}
 
         {/* Data table */}
-        {r && r.rows.length > 0 && (
+        {r?.rows && r.rows.length > 0 && r.columns && (
           <div className="rounded-lg border overflow-hidden">
             <button
               onClick={() => setShowTable(!showTable)}

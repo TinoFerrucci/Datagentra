@@ -134,21 +134,15 @@ def _execute_sql(sql: str, engine: Engine) -> tuple[list[str], list[list[Any]]]:
     return columns, rows
 
 
-def _summarize(question: str, columns: list[str], rows: list[list], sql: str) -> str:
-    llm = get_llm()
+def _build_summary_prompt(question: str, columns: list[str], rows: list[list]) -> str:
+    """Build the LLM prompt for summarization without calling the LLM."""
     preview = rows[:30]
     data_str = "\n".join([", ".join(str(v) for v in row) for row in preview])
 
-    # Compute quick stats for numeric columns to help the LLM
     numeric_stats = []
     for i, col in enumerate(columns):
         vals = [row[i] for row in rows if row[i] is not None]
-        nums = []
-        for v in vals:
-            try:
-                nums.append(float(v))
-            except (TypeError, ValueError):
-                pass
+        nums = [float(v) for v in vals if _try_float(v)]
         if nums:
             total = sum(nums)
             avg = total / len(nums)
@@ -157,7 +151,7 @@ def _summarize(question: str, columns: list[str], rows: list[list], sql: str) ->
             )
     stats_block = "\nPre-computed stats:\n" + "\n".join(numeric_stats) if numeric_stats else ""
 
-    prompt = f"""You are a senior data analyst. A user asked: "{question}"
+    return f"""You are a senior data analyst. A user asked: "{question}"
 
 The data returned ({len(rows)} rows, columns: {', '.join(columns)}):
 {data_str}
@@ -181,6 +175,10 @@ Rules:
 - Do NOT restate the question. Do NOT say "the query returned".
 - Do NOT add headers or extra sections beyond the format above."""
 
+
+def _summarize(question: str, columns: list[str], rows: list[list], sql: str) -> str:
+    llm = get_llm()
+    prompt = _build_summary_prompt(question, columns, rows)
     result = llm.invoke(prompt)
     result = re.sub(r"<think>[\s\S]*?</think>", "", result, flags=re.IGNORECASE).strip()
     return result
@@ -291,6 +289,14 @@ year, genre"""
     return chart_type, {"x_key": x_key, "y_keys": y_keys}, chart_title
 
 
+def _serialize_rows(rows: list[list]) -> list[list]:
+    """Convert non-JSON-serializable types to strings."""
+    return [
+        [str(v) if not isinstance(v, (int, float, str, bool, type(None))) else v for v in row]
+        for row in rows
+    ]
+
+
 def run_pipeline(
     question: str,
     engine: Engine | None = None,
@@ -346,13 +352,7 @@ def run_pipeline(
     # Step 4: Chart suggestion
     chart_type, chart_config, chart_title = _suggest_chart(question, columns, rows)
 
-    # Serialize rows (handle non-serializable types)
-    serializable_rows = []
-    for row in rows:
-        serializable_rows.append([
-            str(v) if not isinstance(v, (int, float, str, bool, type(None))) else v
-            for v in row
-        ])
+    serializable_rows = _serialize_rows(rows)
 
     return {
         "question": question,
