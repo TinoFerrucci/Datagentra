@@ -1,6 +1,9 @@
 import { useRef, useEffect, useState } from 'react'
 import ReactMarkdown from 'react-markdown'
-import { Send, Loader2, Bot, User, ChevronDown, ChevronUp, Database, Cpu, Plus } from 'lucide-react'
+import {
+  Send, Loader2, Bot, User, ChevronDown, ChevronUp,
+  Database, Cpu, Plus, Copy, Check, Download, Sparkles, ImageDown, FileText,
+} from 'lucide-react'
 import { SyntaxHighlighter } from './SyntaxHighlighter'
 import { DynamicChart } from './charts/DynamicChart'
 import type { AgentResponse, ChatMessage, LLMInfo } from '@/hooks/useDatagentra'
@@ -13,12 +16,127 @@ interface ChatInterfaceProps {
   onNew: () => void
   llmInfo: LLMInfo | null
   activeSourceName: string
+  suggestions: string[]
+  onFetchSuggestions: () => Promise<void>
+  conversationTitle?: string
+}
+
+function exportCsv(columns: string[], rows: (string | number | null)[][], filename = 'datagentra_export') {
+  const escape = (v: string | number | null) => {
+    if (v === null) return ''
+    const s = String(v)
+    return s.includes(',') || s.includes('"') || s.includes('\n')
+      ? `"${s.replace(/"/g, '""')}"`
+      : s
+  }
+  const csv = [columns.join(','), ...rows.map(r => r.map(escape).join(','))].join('\n')
+  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' })
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = `${filename}_${Date.now()}.csv`
+  a.click()
+  URL.revokeObjectURL(url)
+}
+
+function exportConversationMd(messages: ChatMessage[], title: string) {
+  const lines: string[] = []
+  lines.push(`# ${title}`)
+  lines.push(`_Exported on ${new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' })}_`)
+  lines.push('')
+
+  let questionNum = 0
+  for (let i = 0; i < messages.length; i++) {
+    const msg = messages[i]
+    if (msg.type === 'user') {
+      questionNum++
+      lines.push(`## Question ${questionNum}`)
+      lines.push('')
+      lines.push(`**${msg.content}**`)
+      lines.push('')
+    } else if (msg.type === 'agent' && msg.response) {
+      const r = msg.response
+      if (r.sql) {
+        lines.push('```sql')
+        lines.push(r.sql)
+        lines.push('```')
+        lines.push('')
+      }
+      if (msg.content) {
+        lines.push(msg.content)
+        lines.push('')
+      }
+      if (r.columns && r.rows && r.rows.length > 0) {
+        const MAX_ROWS = 10
+        lines.push('| ' + r.columns.join(' | ') + ' |')
+        lines.push('| ' + r.columns.map(() => '---').join(' | ') + ' |')
+        r.rows.slice(0, MAX_ROWS).forEach((row) => {
+          lines.push('| ' + row.map((c) => (c === null ? '' : String(c).replace(/\|/g, '\\|'))).join(' | ') + ' |')
+        })
+        if (r.rows.length > MAX_ROWS) {
+          lines.push('')
+          lines.push(`_... and ${r.rows.length - MAX_ROWS} more rows_`)
+        }
+        lines.push('')
+      }
+      lines.push('---')
+      lines.push('')
+    } else if (msg.type === 'error') {
+      lines.push(`> **Error:** ${msg.content}`)
+      lines.push('')
+    }
+  }
+
+  const md = lines.join('\n')
+  const blob = new Blob([md], { type: 'text/markdown;charset=utf-8;' })
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = `${title.replace(/[^a-z0-9]/gi, '_').toLowerCase()}_${Date.now()}.md`
+  a.click()
+  URL.revokeObjectURL(url)
+}
+
+function CopyButton({ text }: { text: string }) {
+  const [copied, setCopied] = useState(false)
+  const handle = async () => {
+    await navigator.clipboard.writeText(text)
+    setCopied(true)
+    setTimeout(() => setCopied(false), 2000)
+  }
+  return (
+    <button
+      onClick={handle}
+      title="Copy SQL"
+      className="p-1 rounded hover:bg-muted transition-colors text-muted-foreground hover:text-foreground"
+    >
+      {copied ? <Check className="w-3.5 h-3.5 text-green-500" /> : <Copy className="w-3.5 h-3.5" />}
+    </button>
+  )
 }
 
 function AgentMessage({ message }: { message: ChatMessage }) {
   const [showSql, setShowSql] = useState(false)
   const [showTable, setShowTable] = useState(false)
+  const [downloadingChart, setDownloadingChart] = useState(false)
+  const chartRef = useRef<HTMLDivElement>(null)
   const r = message.response
+
+  const handleDownloadChart = async () => {
+    if (!chartRef.current) return
+    setDownloadingChart(true)
+    try {
+      const { toPng } = await import('html-to-image')
+      const bg = getComputedStyle(chartRef.current).backgroundColor || '#ffffff'
+      const dataUrl = await toPng(chartRef.current, { pixelRatio: 2, backgroundColor: bg })
+      const a = document.createElement('a')
+      a.href = dataUrl
+      a.download = `chart_${Date.now()}.png`
+      a.click()
+    } finally {
+      setDownloadingChart(false)
+    }
+  }
 
   if (message.type === 'error') {
     return (
@@ -73,23 +191,42 @@ function AgentMessage({ message }: { message: ChatMessage }) {
           </div>
         )}
 
-        {/* Chart — only render once chart config is available */}
+        {/* Chart */}
         {r?.rows && r.rows.length > 0 && r.chart_type && r.chart_config && (
-          <div className="rounded-xl border bg-card p-4">
-            <DynamicChart response={r as AgentResponse} />
+          <div className="rounded-xl border bg-card overflow-hidden">
+            <div className="flex items-center justify-end px-3 pt-2">
+              <button
+                onClick={handleDownloadChart}
+                disabled={downloadingChart}
+                title="Download chart as PNG"
+                className="p-1 rounded hover:bg-muted transition-colors text-muted-foreground hover:text-foreground disabled:opacity-50"
+              >
+                {downloadingChart
+                  ? <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                  : <ImageDown className="w-3.5 h-3.5" />}
+              </button>
+            </div>
+            <div ref={chartRef} className="p-4 pt-1 bg-card">
+              <DynamicChart response={r as AgentResponse} />
+            </div>
           </div>
         )}
 
         {/* SQL accordion */}
         {r?.sql && (
           <div className="rounded-lg border overflow-hidden">
-            <button
-              onClick={() => setShowSql(!showSql)}
-              className="w-full flex items-center justify-between px-4 py-2.5 text-sm font-medium bg-muted hover:bg-muted/70 transition-colors"
-            >
-              <span className="font-mono text-xs text-muted-foreground">SQL used</span>
-              {showSql ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
-            </button>
+            <div className="flex items-center bg-muted">
+              <button
+                onClick={() => setShowSql(!showSql)}
+                className="flex-1 flex items-center justify-between px-4 py-2.5 text-sm font-medium hover:bg-muted/70 transition-colors"
+              >
+                <span className="font-mono text-xs text-muted-foreground">SQL used</span>
+                {showSql ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+              </button>
+              <div className="px-2">
+                <CopyButton text={r.sql} />
+              </div>
+            </div>
             {showSql && (
               <div className="text-xs">
                 <SyntaxHighlighter code={r.sql} language="sql" />
@@ -101,15 +238,24 @@ function AgentMessage({ message }: { message: ChatMessage }) {
         {/* Data table */}
         {r?.rows && r.rows.length > 0 && r.columns && (
           <div className="rounded-lg border overflow-hidden">
-            <button
-              onClick={() => setShowTable(!showTable)}
-              className="w-full flex items-center justify-between px-4 py-2.5 text-sm font-medium bg-muted hover:bg-muted/70 transition-colors"
-            >
-              <span className="text-xs text-muted-foreground">
-                Raw data ({r.rows.length} rows)
-              </span>
-              {showTable ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
-            </button>
+            <div className="flex items-center bg-muted">
+              <button
+                onClick={() => setShowTable(!showTable)}
+                className="flex-1 flex items-center justify-between px-4 py-2.5 text-sm font-medium hover:bg-muted/70 transition-colors"
+              >
+                <span className="text-xs text-muted-foreground">
+                  Raw data ({r.rows.length} rows)
+                </span>
+                {showTable ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+              </button>
+              <button
+                onClick={() => exportCsv(r.columns!, r.rows)}
+                title="Export CSV"
+                className="px-2 py-2 hover:bg-muted/70 transition-colors text-muted-foreground hover:text-foreground"
+              >
+                <Download className="w-3.5 h-3.5" />
+              </button>
+            </div>
             {showTable && (
               <div className="overflow-auto max-h-64">
                 <table className="w-full text-xs">
@@ -150,8 +296,12 @@ export function ChatInterface({
   onNew,
   llmInfo,
   activeSourceName,
+  suggestions,
+  onFetchSuggestions,
+  conversationTitle,
 }: ChatInterfaceProps) {
   const [input, setInput] = useState('')
+  const [fetchingSuggestions, setFetchingSuggestions] = useState(false)
   const bottomRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLTextAreaElement>(null)
 
@@ -173,12 +323,11 @@ export function ChatInterface({
     }
   }
 
-  const suggestions = [
-    'Top 10 products by revenue',
-    'Monthly sales trend in 2024',
-    'Orders by status',
-    'Most active customers',
-  ]
+  const handleFetchSuggestions = async () => {
+    setFetchingSuggestions(true)
+    await onFetchSuggestions()
+    setFetchingSuggestions(false)
+  }
 
   return (
     <div className="flex flex-col h-full">
@@ -190,14 +339,26 @@ export function ChatInterface({
             {activeSourceName} {llmInfo && `· ${llmInfo.provider === 'ollama' ? 'Local' : 'OpenAI'} / ${llmInfo.model}`}
           </p>
         </div>
-        <button
-          onClick={onNew}
-          className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg hover:bg-muted transition-colors text-xs text-muted-foreground hover:text-foreground border"
-          title="New conversation"
-        >
-          <Plus className="w-3.5 h-3.5" />
-          New
-        </button>
+        <div className="flex items-center gap-2">
+          {messages.length > 0 && (
+            <button
+              onClick={() => exportConversationMd(messages, conversationTitle || 'Conversation')}
+              title="Export conversation as Markdown"
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg hover:bg-muted transition-colors text-xs text-muted-foreground hover:text-foreground border"
+            >
+              <FileText className="w-3.5 h-3.5" />
+              Export
+            </button>
+          )}
+          <button
+            onClick={onNew}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg hover:bg-muted transition-colors text-xs text-muted-foreground hover:text-foreground border"
+            title="New conversation"
+          >
+            <Plus className="w-3.5 h-3.5" />
+            New
+          </button>
+        </div>
       </div>
 
       {/* Messages */}
@@ -222,6 +383,16 @@ export function ChatInterface({
                 </button>
               ))}
             </div>
+            <button
+              onClick={handleFetchSuggestions}
+              disabled={fetchingSuggestions}
+              className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors disabled:opacity-50"
+            >
+              {fetchingSuggestions
+                ? <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                : <Sparkles className="w-3.5 h-3.5" />}
+              {fetchingSuggestions ? 'Generating...' : 'Generate from schema'}
+            </button>
           </div>
         )}
 

@@ -291,6 +291,52 @@ async def ask_stream(request: Request, req: AskRequest):
     return StreamingResponse(generate(), media_type="application/x-ndjson")
 
 
+# ------ Schema question suggestions ------
+
+@app.get("/api/suggest")
+@limiter.limit("5/minute")
+async def suggest_questions(request: Request):
+    """Generate interesting data exploration questions based on the active schema."""
+    source_type = _active_source["type"]
+    source_id = _active_source["id"]
+
+    if source_type in ("postgres", "sqlite"):
+        engine = readonly_engine
+    else:
+        from app.data_loader import get_engine_for_session
+        engine = get_engine_for_session(source_id) or readonly_engine
+
+    try:
+        ddl = await asyncio.to_thread(get_schema_ddl, engine)
+        llm = get_llm()
+
+        prompt = f"""You are a data analyst helping users explore a new database. Based on this schema, suggest 8 specific and interesting analytical questions a business user might ask.
+
+Schema:
+{ddl}
+
+Rules:
+- Reference actual table and column names from the schema
+- Mix different query types: rankings, trends, aggregations, distributions, comparisons
+- Keep each question concise (under 65 characters)
+- Return exactly 8 questions, one per line, no numbering, no bullet points
+
+Questions:"""
+
+        raw = await asyncio.to_thread(llm.invoke, prompt)
+        raw = re.sub(r"<think>[\s\S]*?</think>", "", raw, flags=re.IGNORECASE).strip()
+
+        questions = [
+            line.strip().lstrip("0123456789.-) ")
+            for line in raw.splitlines()
+            if line.strip() and not line.strip().startswith("#")
+        ][:8]
+
+        return {"questions": questions}
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
 # ------ Conversation endpoints ------
 
 @app.get("/api/conversations")

@@ -2,6 +2,13 @@ import { useState, useCallback, useEffect } from 'react'
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000'
 
+const DEFAULT_SUGGESTIONS = [
+  'Top 10 products by revenue',
+  'Monthly sales trend in 2024',
+  'Orders by status',
+  'Most active customers',
+]
+
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
@@ -117,6 +124,7 @@ export function useDatagentra() {
   const [schema, setSchema] = useState<Record<string, SchemaTable>>({})
   const [llmInfo, setLlmInfo] = useState<LLMInfo | null>(null)
   const [setupStatus, setSetupStatus] = useState<SetupStatus | null>(null)
+  const [suggestions, setSuggestions] = useState<string[]>(DEFAULT_SUGGESTIONS)
 
   // ---------------------------------------------------------------------------
   // Conversations
@@ -228,6 +236,17 @@ export function useDatagentra() {
       setSetupStatus(data)
     } catch {
       // ignore
+    }
+  }, [])
+
+  const fetchSuggestions = useCallback(async () => {
+    try {
+      const res = await fetch(`${API_URL}/api/suggest`)
+      if (!res.ok) return
+      const data = await res.json()
+      if (data.questions?.length > 0) setSuggestions(data.questions)
+    } catch {
+      // silently fallback to defaults
     }
   }, [])
 
@@ -472,6 +491,9 @@ export function useDatagentra() {
     fixUpload,
     confirmUpload,
     refreshSchema: fetchSchema,
+    // suggestions
+    suggestions,
+    fetchSuggestions,
     // setup
     setupStatus,
     saveSetup,

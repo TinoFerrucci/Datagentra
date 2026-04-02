@@ -13,6 +13,8 @@ import {
   Check,
   X,
   Settings,
+  Code2,
+  Copy,
 } from 'lucide-react'
 import logoUrl from '../statics/logo.png'
 import datagentraUrl from '../statics/datagentra.png'
@@ -25,7 +27,55 @@ import { SettingsModal } from './components/SettingsModal'
 import { cn } from './lib/utils'
 import type { Conversation } from './hooks/useDatagentra'
 
-type RightPanel = 'schema' | 'upload'
+type RightPanel = 'schema' | 'upload' | 'sql'
+
+import type { ChatMessage } from './hooks/useDatagentra'
+
+function SqlHistoryPanel({ messages }: { messages: ChatMessage[] }) {
+  const [copiedIdx, setCopiedIdx] = useState<number | null>(null)
+
+  const sqlItems = messages
+    .filter((m) => m.type === 'agent' && m.response?.sql)
+    .map((m, i) => ({ index: i + 1, sql: m.response!.sql! }))
+
+  const handleCopy = async (sql: string, idx: number) => {
+    await navigator.clipboard.writeText(sql)
+    setCopiedIdx(idx)
+    setTimeout(() => setCopiedIdx(null), 2000)
+  }
+
+  if (sqlItems.length === 0) {
+    return (
+      <div className="flex flex-col items-center justify-center h-40 text-xs text-muted-foreground px-4 text-center">
+        No SQL queries yet in this conversation.
+      </div>
+    )
+  }
+
+  return (
+    <div className="p-3 space-y-2">
+      {sqlItems.map(({ index, sql }) => (
+        <div key={index} className="rounded-lg border overflow-hidden">
+          <div className="flex items-center justify-between px-3 py-2 bg-muted">
+            <span className="text-xs font-medium text-muted-foreground">Query {index}</span>
+            <button
+              onClick={() => handleCopy(sql, index)}
+              title="Copy"
+              className="p-1 rounded hover:bg-background transition-colors text-muted-foreground hover:text-foreground"
+            >
+              {copiedIdx === index
+                ? <Check className="w-3.5 h-3.5 text-green-500" />
+                : <Copy className="w-3.5 h-3.5" />}
+            </button>
+          </div>
+          <pre className="text-xs px-3 py-2 overflow-x-auto text-foreground/80 leading-relaxed whitespace-pre-wrap break-all">
+            {sql}
+          </pre>
+        </div>
+      ))}
+    </div>
+  )
+}
 
 export default function App() {
   const [darkMode, setDarkMode] = useState(() => localStorage.getItem('theme') === 'dark')
@@ -56,6 +106,8 @@ export default function App() {
     fixUpload,
     confirmUpload,
     switchDataSource,
+    suggestions,
+    fetchSuggestions,
   } = useDatagentra()
 
   useEffect(() => {
@@ -72,6 +124,9 @@ export default function App() {
 
   const activeSourceName =
     dataSources.find((s) => s.id === activeSource?.id)?.name ?? 'E-commerce (default)'
+
+  const conversationTitle =
+    conversations.find((c) => c.id === activeConversationId)?.title ?? 'Conversation'
 
   // Inline rename helpers
   const startEdit = (conv: Conversation) => {
@@ -253,6 +308,9 @@ export default function App() {
             onNew={createConversation}
             llmInfo={llmInfo}
             activeSourceName={activeSourceName}
+            suggestions={suggestions}
+            onFetchSuggestions={fetchSuggestions}
+            conversationTitle={conversationTitle}
           />
         ) : (
           <div className="flex flex-col items-center justify-center h-full gap-6 text-center px-8">
@@ -284,30 +342,27 @@ export default function App() {
         <div className="flex items-center border-b px-3 py-3 gap-2 flex-shrink-0">
           {!rightCollapsed && (
             <>
-              <button
-                onClick={() => setRightPanel('schema')}
-                className={cn(
-                  'flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-xs font-medium transition-colors',
-                  rightPanel === 'schema'
-                    ? 'bg-teal-100 dark:bg-teal-900/40 text-teal-700 dark:text-teal-300'
-                    : 'text-muted-foreground hover:bg-muted'
-                )}
-              >
-                <Database className="w-3.5 h-3.5" />
-                Schema
-              </button>
-              <button
-                onClick={() => setRightPanel('upload')}
-                className={cn(
-                  'flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-xs font-medium transition-colors',
-                  rightPanel === 'upload'
-                    ? 'bg-teal-100 dark:bg-teal-900/40 text-teal-700 dark:text-teal-300'
-                    : 'text-muted-foreground hover:bg-muted'
-                )}
-              >
-                <Upload className="w-3.5 h-3.5" />
-                Upload
-              </button>
+              {(
+                [
+                  { id: 'schema', icon: <Database className="w-3.5 h-3.5" />, label: 'Schema' },
+                  { id: 'upload', icon: <Upload className="w-3.5 h-3.5" />, label: 'Upload' },
+                  { id: 'sql',    icon: <Code2 className="w-3.5 h-3.5" />,   label: 'SQL' },
+                ] as const
+              ).map(({ id, icon, label }) => (
+                <button
+                  key={id}
+                  onClick={() => setRightPanel(id)}
+                  className={cn(
+                    'flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-xs font-medium transition-colors',
+                    rightPanel === id
+                      ? 'bg-teal-100 dark:bg-teal-900/40 text-teal-700 dark:text-teal-300'
+                      : 'text-muted-foreground hover:bg-muted'
+                  )}
+                >
+                  {icon}
+                  {label}
+                </button>
+              ))}
             </>
           )}
           <button
@@ -321,19 +376,23 @@ export default function App() {
         {/* Panel content */}
         {!rightCollapsed && (
           <div className="flex-1 overflow-y-auto">
-            {rightPanel === 'schema' ? (
+            {rightPanel === 'schema' && (
               <SchemaExplorer
                 schema={schema}
                 onColumnClick={(text) => {
                   window.dispatchEvent(new CustomEvent('insert-text', { detail: text }))
                 }}
               />
-            ) : (
+            )}
+            {rightPanel === 'upload' && (
               <DataSourcePanel
                 onUpload={uploadFile}
                 onFix={fixUpload}
                 onConfirm={confirmUpload}
               />
+            )}
+            {rightPanel === 'sql' && (
+              <SqlHistoryPanel messages={messages} />
             )}
           </div>
         )}
