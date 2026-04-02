@@ -35,15 +35,23 @@ All in a single chat interface. No SQL writing, no database clients, no CSV expo
 ## Features
 
 - **Text-to-SQL with retries** — if the SQL fails, the agent analyses the error and regenerates the query automatically (up to 2 retries)
+- **Streaming responses** — SQL, data, summary, and chart are pushed to the browser progressively as each pipeline step completes, so you see results immediately instead of waiting for the full pipeline
 - **Contextual memory per conversation** — the agent remembers the last 6 questions and answers within the same conversation, enabling natural follow-up questions ("and of those, how many are from overseas?")
 - **Persistent history** — every conversation is saved in SQLite; create, rename, switch, and delete conversations from the sidebar
 - **Automatic charts** — bar, line, area, pie, scatter, data table, or KPI card — chosen automatically based on the query and data shape
+- **Export to CSV** — download any query result as a CSV file directly from the chat
+- **Export chart as PNG** — save any chart as a high-resolution PNG image (2× pixel ratio), preserving the correct background in light and dark mode
+- **Export conversation to Markdown** — export the full conversation as a `.md` file with questions, SQL code blocks, analysis text, and data tables
+- **Copy SQL** — one-click copy of the generated SQL query, available on every response
+- **SQL History panel** — sidebar tab listing every SQL query generated in the current conversation
+- **Smart query suggestions** — auto-generated question suggestions based on the active schema, shown in the welcome screen
 - **File upload** — upload a CSV or SQLite file and query it directly with natural language
 - **Natural language corrections** — before confirming a CSV, ask things like `"rename column sale_date to date"` or `"drop the internal_id column"` — interpreted by the LLM, so any phrasing works
 - **Configurable LLM provider** — OpenAI (cloud, recommended) or Ollama (local, free, no data sent to third parties)
 - **Schema Explorer** — side panel with the full structure of the active database: tables, columns, types, PKs, FKs, and relationships
 - **Light/dark theme** — with preference saved in `localStorage`
 - **Safe execution** — the read-only engine blocks any write operation (`INSERT`, `UPDATE`, `DELETE`, `DROP`, etc.) at both the SQLAlchemy event-hook level and in the agent before execution
+- **Rate limiting** — 10 requests/minute on ask endpoints, 5/minute on suggestions (per IP, via `slowapi`)
 
 ---
 
@@ -481,8 +489,12 @@ A: (the agent understands "those" = the top 10 from before)
 | Method | Endpoint | Description |
 |---|---|---|
 | `GET` | `/health` | Health check (used by Docker and setup) |
-| `POST` | `/api/ask` | Full pipeline: question → SQL → data → chart |
+| `POST` | `/api/ask` | Full pipeline: question → SQL → data → chart (blocking) |
+| `POST` | `/api/ask/stream` | Same pipeline as `/api/ask` but streams NDJSON events progressively |
+| `GET` | `/api/suggest` | LLM-generated question suggestions based on the active schema |
 | `GET` | `/api/schema` | Schema of the active data source |
+| `GET` | `/api/datasource` | List data sources and the currently active one |
+| `PUT` | `/api/datasource` | Switch the active data source |
 | `GET` | `/api/llm-info` | Currently configured provider and model |
 | `GET` | `/api/setup/status` | LLM configuration status |
 | `POST` | `/api/setup` | Save provider/model/key to `.env` |
@@ -493,6 +505,7 @@ A: (the agent understands "those" = the top 10 from before)
 | `POST` | `/api/upload/fix` | Apply a natural language correction to the CSV |
 | `POST` | `/api/upload/confirm` | Confirm the uploaded source as active |
 | `GET` | `/api/conversations` | List conversations |
+| `POST` | `/api/conversations` | Create a new conversation |
 | `GET` | `/api/conversations/{id}` | Get a conversation with its messages |
 | `DELETE` | `/api/conversations/{id}` | Delete a conversation |
 | `PATCH` | `/api/conversations/{id}` | Rename a conversation |
@@ -560,6 +573,8 @@ Datagentra/
                 ├── BarChartComponent.tsx
                 ├── LineChartComponent.tsx
                 ├── PieChartComponent.tsx
+                ├── ScatterChartComponent.tsx
+                ├── TableComponent.tsx       # Tabular chart type
                 └── KPICard.tsx              # Single metric display
 ```
 

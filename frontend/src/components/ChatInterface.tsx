@@ -127,12 +127,21 @@ function AgentMessage({ message }: { message: ChatMessage }) {
     setDownloadingChart(true)
     try {
       const { toPng } = await import('html-to-image')
-      const bg = getComputedStyle(chartRef.current).backgroundColor || '#ffffff'
-      const dataUrl = await toPng(chartRef.current, { pixelRatio: 2, backgroundColor: bg })
+      // CSS variables like hsl(var(--card)) resolve to transparent in getComputedStyle on the element.
+      // Read the variable from :root directly to get the actual resolved value.
+      const cardHsl = getComputedStyle(document.documentElement).getPropertyValue('--card').trim()
+      const bg = cardHsl ? `hsl(${cardHsl})` : '#ffffff'
+      const dataUrl = await toPng(chartRef.current, {
+        pixelRatio: 2,
+        backgroundColor: bg,
+        cacheBust: true,
+      })
       const a = document.createElement('a')
       a.href = dataUrl
       a.download = `chart_${Date.now()}.png`
       a.click()
+    } catch (e) {
+      console.error('Chart export failed:', e)
     } finally {
       setDownloadingChart(false)
     }
