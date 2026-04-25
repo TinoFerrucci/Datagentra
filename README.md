@@ -4,7 +4,8 @@
 
 <p align="center">
   Turn natural language questions into SQL, charts, and insights.<br/>
-  100% local with Ollama or cloud-powered with OpenAI. No external database required — everything runs locally with SQLite.
+  Connect to SQLite, PostgreSQL, or MySQL. Upload CSV, Excel, or SQLite files.<br/>
+  100% local with Ollama or cloud-powered with OpenAI.
 </p>
 
 <p align="center">
@@ -22,11 +23,12 @@
 
 Datagentra is an **autonomous data analyst** that lives on your machine. You ask a question in plain English and it:
 
-1. Reads your question and the active database schema
-2. Generates the appropriate SQL query using an LLM
-3. Executes the SQL safely (read-only)
-4. Analyses the results and writes a summary with key observations
-5. Suggests the most suitable chart type and renders it automatically
+1. Plans the query intent and chart strategy using the LLM
+2. Generates the appropriate SQL query based on the plan
+3. Executes the SQL safely (read-only) with automatic retries on error
+4. Analyses the results and writes a structured summary with key observations
+5. Picks the most suitable chart type and axes configuration
+6. Returns the full response to the chat, persisted to conversation history
 
 All in a single chat interface. No SQL writing, no database clients, no CSV exports.
 
@@ -34,24 +36,28 @@ All in a single chat interface. No SQL writing, no database clients, no CSV expo
 
 ## Features
 
+- **6-step pipeline** — Plan → SQL → Execute → Summary → Chart → Response, each step progressively streamed to the browser
 - **Text-to-SQL with retries** — if the SQL fails, the agent analyses the error and regenerates the query automatically (up to 2 retries)
-- **Streaming responses** — SQL, data, summary, and chart are pushed to the browser progressively as each pipeline step completes, so you see results immediately instead of waiting for the full pipeline
+- **Streaming responses** — plan, SQL, data, summary chunks, and chart are pushed to the browser progressively as each pipeline step completes via NDJSON
 - **Contextual memory per conversation** — the agent remembers the last 6 questions and answers within the same conversation, enabling natural follow-up questions ("and of those, how many are from overseas?")
 - **Persistent history** — every conversation is saved in SQLite; create, rename, switch, and delete conversations from the sidebar
-- **Automatic charts** — bar, line, area, pie, scatter, data table, or KPI card — chosen automatically based on the query and data shape
+- **Automatic charts** — bar, line, area, pie, scatter, data table, or KPI card — chosen automatically based on the query intent and data shape
+- **Multiple database support** — connect to **PostgreSQL** or **MySQL** databases directly from the UI, or use the built-in SQLite
+- **File upload** — upload CSV, Excel (`.xlsx`/`.xls`), or SQLite files and query them with natural language
+- **Inline column editing** — rename or drop columns directly in the upload preview before confirming (no LLM needed)
+- **Natural language corrections** — before confirming a CSV, ask things like `"rename column sale_date to date"` or `"drop the internal_id column"` — interpreted by the LLM, so any phrasing works
 - **Export to CSV** — download any query result as a CSV file directly from the chat
-- **Export chart as PNG** — save any chart as a high-resolution PNG image (2× pixel ratio), preserving the correct background in light and dark mode
+- **Export chart as PNG** — save any chart as a high-resolution PNG image (2x pixel ratio), preserving the correct background in light and dark mode
 - **Export conversation to Markdown** — export the full conversation as a `.md` file with questions, SQL code blocks, analysis text, and data tables
 - **Copy SQL** — one-click copy of the generated SQL query, available on every response
 - **SQL History panel** — sidebar tab listing every SQL query generated in the current conversation
 - **Smart query suggestions** — auto-generated question suggestions based on the active schema, shown in the welcome screen
-- **File upload** — upload a CSV or SQLite file and query it directly with natural language
-- **Natural language corrections** — before confirming a CSV, ask things like `"rename column sale_date to date"` or `"drop the internal_id column"` — interpreted by the LLM, so any phrasing works
 - **Configurable LLM provider** — OpenAI (cloud, recommended) or Ollama (local, free, no data sent to third parties)
 - **Schema Explorer** — side panel with the full structure of the active database: tables, columns, types, PKs, FKs, and relationships
 - **Light/dark theme** — with preference saved in `localStorage`
-- **Safe execution** — the read-only engine blocks any write operation (`INSERT`, `UPDATE`, `DELETE`, `DROP`, etc.) at both the SQLAlchemy event-hook level and in the agent before execution
+- **Safe execution** — the read-only engine blocks any write operation (`INSERT`, `UPDATE`, `DELETE`, `DROP`, etc.) at both the SQLAlchemy event-hook level and in the agent before execution. Applies to all database types (SQLite, PostgreSQL, MySQL)
 - **Rate limiting** — 10 requests/minute on ask endpoints, 5/minute on suggestions (per IP, via `slowapi`)
+- **Frontend log ingestion** — browser errors and warnings forwarded to the backend for unified logging
 
 ---
 
@@ -85,46 +91,54 @@ All in a single chat interface. No SQL writing, no database clients, no CSV expo
 
 ## How the pipeline works
 
-When you ask a question, the backend runs a 5-step pipeline:
+When you ask a question, the backend runs a 6-step pipeline:
 
 ```
 User question
-      │
-      ▼
- ┌──────────────────────────────────────────────────────────┐
- │ 1. SQL Generation                                         │
- │    The LLM receives: DDL schema + conversation history    │
- │    + your question → generates a SQL query               │
- └──────────────────┬───────────────────────────────────────┘
-                    │
-                    ▼
- ┌──────────────────────────────────────────────────────────┐
- │ 2. Execution with retries                                 │
- │    Runs the SQL on the read-only engine.                  │
- │    On failure, the LLM analyses the error and fixes SQL. │
- │    Maximum 2 automatic retries.                          │
- └──────────────────┬───────────────────────────────────────┘
-                    │
-                    ▼
- ┌──────────────────────────────────────────────────────────┐
- │ 3. Summary                                                │
- │    The LLM analyses the returned rows and writes a        │
- │    paragraph with the key conclusions and metrics        │
- └──────────────────┬───────────────────────────────────────┘
-                    │
-                    ▼
- ┌──────────────────────────────────────────────────────────┐
- │ 4. Chart suggestion                                       │
- │    The LLM picks the most suitable chart type            │
- │    (bar / line / area / pie / metric) and axes           │
- └──────────────────┬───────────────────────────────────────┘
-                    │
-                    ▼
- ┌──────────────────────────────────────────────────────────┐
- │ 5. Final response                                         │
- │    SQL + data + summary + chart → saved to               │
- │    conversations.db → rendered in the chat               │
- └──────────────────────────────────────────────────────────┘
+      |
+      v
+ +------------------------------------------------------------+
+ | 1. Plan                                                     |
+ |    The LLM analyses the question, schema, and history.      |
+ |    Decides: intent, row_limit, chart_hint, needs_chart      |
+ +----------------------------+-------------------------------+
+                              |
+                              v
+ +------------------------------------------------------------+
+ | 2. SQL Generation                                           |
+ |    The LLM receives: plan + DDL schema + conversation       |
+ |    history + question -> generates a SQL query              |
+ +----------------------------+-------------------------------+
+                              |
+                              v
+ +------------------------------------------------------------+
+ | 3. Execution with retries                                   |
+ |    Runs the SQL on the read-only engine.                    |
+ |    On failure, the LLM analyses the error and fixes SQL.   |
+ |    Maximum 2 automatic retries.                            |
+ +----------------------------+-------------------------------+
+                              |
+                              v
+ +------------------------------------------------------------+
+ | 4. Summary                                                  |
+ |    The LLM analyses the returned rows and writes a          |
+ |    structured analytical report with key insights           |
+ +----------------------------+-------------------------------+
+                              |
+                              v
+ +------------------------------------------------------------+
+ | 5. Chart suggestion                                         |
+ |    The LLM picks the most suitable chart type               |
+ |    (bar / line / area / pie / metric / scatter / table)     |
+ |    and configures axes based on plan hint + data shape      |
+ +----------------------------+-------------------------------+
+                              |
+                              v
+ +------------------------------------------------------------+
+ | 6. Final response                                           |
+ |    Plan + SQL + data + summary + chart -> saved to          |
+ |    conversations.db -> rendered in the chat                 |
+ +------------------------------------------------------------+
 ```
 
 ---
@@ -132,29 +146,36 @@ User question
 ## Architecture
 
 ```
-┌─────────────────────────────────────────────────────────────┐
-│                        Browser                              │
-│   React + Vite + TypeScript + Tailwind + Recharts           │
-│   :5173                                                     │
-└──────────────────────────┬──────────────────────────────────┘
-                           │ HTTP (CORS)
-                           ▼
-┌─────────────────────────────────────────────────────────────┐
-│                    FastAPI Backend :8000                     │
-│   ┌────────────┐ ┌─────────────┐ ┌──────────────────────┐   │
-│   │  agent.py  │ │data_loader  │ │  conversations.py    │   │
-│   │ Text→SQL   │ │CSV / SQLite │ │  History in SQLite   │   │
-│   └─────┬──────┘ └─────────────┘ └──────────────────────┘   │
-│         │                   llm_provider.py                  │
-└─────────┼───────────────────────┬──────────────────────────┘
-          │                       │
-          ▼                       ▼
-┌──────────────────────┐  ┌────────────────────────┐
-│ db/datagentra.db     │  │  OpenAI API  /          │
-│ E-commerce SQLite    │  │  Ollama :11434 (local)  │
-│ db/conversations.db  │  └────────────────────────┘
-│ Chat history         │
-└──────────────────────┘
++-------------------------------------------------------------+
+|                          Browser                             |
+|   React + Vite + TypeScript + Tailwind + MUI X Charts       |
+|   :5173                                                      |
++-----------------------------+-------------------------------+
+                              | HTTP (CORS)
+                              v
++-------------------------------------------------------------+
+|                     FastAPI Backend :8000                    |
+|   +--------------+  +---------------+  +------------------+ |
+|   |  agent.py    |  | data_loader   |  | conversations.py | |
+|   | 6-step       |  | CSV/Excel/    |  | History in       | |
+|   | pipeline     |  | SQLite loader |  | SQLite           | |
+|   +-------+------+  +---------------+  +------------------+ |
+|           |              database.py          llm_provider   |
++-----------+------------------+------------------------------+
+            |                  |
+            v                  v
++------------------------+  +---------------------------+
+| db/datagentra.db       |  |  OpenAI API  /            |
+| E-commerce SQLite      |  |  Ollama :11434 (local)    |
+| db/conversations.db    |  +---------------------------+
+| Chat history           |
++------------------------+
+        ^
+        |  Optional external databases
++----------------+  +----------------+
+| PostgreSQL     |  | MySQL          |
+| (psycopg2)     |  | (pymysql)      |
++----------------+  +----------------+
 ```
 
 ### Technology stack
@@ -164,11 +185,14 @@ User question
 | Backend API | FastAPI + Uvicorn | 0.115+ |
 | ORM | SQLAlchemy | 2.0+ |
 | LLM | LangChain (OpenAI / Ollama) | 0.3+ |
-| CSV processing | Pandas | 2.2+ |
+| Data processing | Pandas | 2.2+ |
+| PostgreSQL driver | psycopg2-binary | 2.9+ |
+| MySQL driver | PyMySQL | 1.1+ |
+| Excel support | openpyxl | 3.1+ |
 | Frontend | React + TypeScript + Vite | 18.3 / 5.6 / 5.4 |
 | Styles | Tailwind CSS + Radix UI | 3.4 |
-| Charts | Recharts | 2.13 |
-| Database | SQLite | — |
+| Charts | MUI X Charts | 9.0 |
+| Database | SQLite (default) / PostgreSQL / MySQL | -- |
 | Python package manager | uv | latest |
 
 ---
@@ -226,8 +250,8 @@ You need an OpenAI API Key. Create one at: **https://platform.openai.com/api-key
 Download and install Ollama from: **https://ollama.com/download**
 
 ```bash
-# Then pull a language model (e.g. qwen2.5:7b — ~4.7 GB)
-ollama pull qwen2.5:7b
+# Then pull a language model (e.g. qwen3:8b — ~5 GB)
+ollama pull qwen3:8b
 ```
 
 ---
@@ -293,7 +317,7 @@ OPENAI_MODEL=gpt-4o-mini
 # Using local Ollama (see note below):
 # LLM_PROVIDER=ollama
 # OLLAMA_BASE_URL=http://host.docker.internal:11434
-# OLLAMA_MODEL=qwen2.5:7b
+# OLLAMA_MODEL=qwen3:8b
 ```
 
 **2. Create the frontend configuration file:**
@@ -392,10 +416,10 @@ When you open the app for the first time in the browser, a wizard guides you thr
 2. The wizard automatically detects models installed at `localhost:11434`
 3. Pick a model and save
 
-Once configured, you can change provider or model at any time using the ⚙️ icon in the sidebar.
+Once configured, you can change provider or model at any time using the gear icon in the sidebar.
 
 ### Changing settings (SettingsModal)
-- Open with the ⚙️ icon (bottom-left of the sidebar)
+- Open with the gear icon (bottom-left of the sidebar)
 - When opened, the model list **loads automatically** using the already-saved key — no need to re-enter it
 - Leave the API Key field **blank** to keep the current key; fill it in only if you want to change it
 - Select the desired model and save
@@ -408,26 +432,49 @@ Once configured, you can change provider or model at any time using the ⚙️ i
 
 On startup, Datagentra uses a SQLite e-commerce database with auto-generated sample data. It includes:
 - **15 tables**: products, categories, users, orders, items, payments, shipments, reviews, etc.
-- **~500 users**, **~3 500 orders**, **~7 000 items** with temporal variety (2022–2024)
+- **~500 users**, **~3 500 orders**, **~7 000 items** with temporal variety (2022-2024)
 - Designed for complex analytical queries: aggregations, multi-table JOINs, trends
 
-### Uploading your own data source
+### Adding data sources
 
-Click the database icon in the right panel or drag and drop a file:
+Click the **+** button next to "Data Sources" in the sidebar to open the unified modal with three tabs:
+
+#### Local Files tab
+
+Drag and drop or browse for a file:
 
 **CSV** (`.csv`)
 - Column types inferred automatically (INT, FLOAT, VARCHAR, DATE, BOOLEAN)
 - Shows statistics: null %, min/max, mean, most frequent values
 - Preview of the first 10 rows
-- You can correct the schema in natural language before confirming:
-  - `"rename column sale_date to date"`
-  - `"drop the internal_id column"`
-  - `"convert the price column to float"`
+- Inline column editor: rename or drop columns with one click
+- Natural language corrections: `"rename column sale_date to date"`, `"drop the internal_id column"`, `"convert the price column to float"`
+
+**Excel** (`.xlsx`, `.xls`)
+- Same features as CSV: auto type inference, statistics, preview, column editing
+- Powered by `openpyxl` + Pandas
 
 **SQLite** (`.db`, `.sqlite`)
 - Upload your own SQLite database and query it directly
+- Auto-activates immediately (no column editor needed)
 
-Once the source is confirmed, the agent uses that table/database to answer your questions.
+#### PostgreSQL tab
+
+Connect to a remote or local PostgreSQL database:
+- Enter host, port, database name, user, and password
+- Connection is validated before saving (shows table count)
+- Read-only enforcement via SQLAlchemy `before_cursor_execute` hook
+- Uses `psycopg2-binary` driver
+
+#### MySQL tab
+
+Connect to a remote or local MySQL database:
+- Same interface as PostgreSQL
+- Uses `pymysql` driver
+
+Once a source is confirmed, the agent uses it to answer your questions. Switch between sources at any time from the sidebar.
+
+> **Note:** External database connections are stored in-memory and are lost on backend restart.
 
 ---
 
@@ -455,8 +502,8 @@ A: (the agent understands "those" = the top 10 from before)
 |---|---|
 | New conversation | `+` button in the sidebar or welcome screen |
 | Switch conversation | Click its name in the sidebar |
-| Rename | Double-click the name, or the ✏️ icon |
-| Delete | 🗑️ icon on hover |
+| Rename | Double-click the name, or the pencil icon |
+| Delete | trash icon on hover |
 | Auto title | Assigned automatically from the first question |
 
 ---
@@ -473,7 +520,7 @@ A: (the agent understands "those" = the top 10 from before)
 | `OPENAI_API_KEY` | OpenAI API Key | — |
 | `OPENAI_MODEL` | OpenAI model | `gpt-4o-mini` |
 | `OLLAMA_BASE_URL` | Ollama server URL | `http://localhost:11434` |
-| `OLLAMA_MODEL` | Ollama model | `qwen2.5:7b` |
+| `OLLAMA_MODEL` | Ollama model | `qwen3:8b` |
 | `MAX_UPLOAD_SIZE_MB` | Maximum file upload size | `50` |
 
 ### `frontend/.env`
@@ -489,7 +536,7 @@ A: (the agent understands "those" = the top 10 from before)
 | Method | Endpoint | Description |
 |---|---|---|
 | `GET` | `/health` | Health check (used by Docker and setup) |
-| `POST` | `/api/ask` | Full pipeline: question → SQL → data → chart (blocking) |
+| `POST` | `/api/ask` | Full pipeline: question -> SQL -> data -> chart (blocking) |
 | `POST` | `/api/ask/stream` | Same pipeline as `/api/ask` but streams NDJSON events progressively |
 | `GET` | `/api/suggest` | LLM-generated question suggestions based on the active schema |
 | `GET` | `/api/schema` | Schema of the active data source |
@@ -501,14 +548,20 @@ A: (the agent understands "those" = the top 10 from before)
 | `GET` | `/api/openai/models/current` | List GPT models using the stored key |
 | `POST` | `/api/openai/models` | Validate a new API key and list models |
 | `GET` | `/api/ollama/models` | List available Ollama models |
-| `POST` | `/api/upload` | Upload CSV or SQLite |
-| `POST` | `/api/upload/fix` | Apply a natural language correction to the CSV |
+| `POST` | `/api/upload` | Upload CSV, Excel, or SQLite file |
+| `POST` | `/api/upload/fix` | Apply a natural language correction to the uploaded CSV |
+| `POST` | `/api/upload/rename-column` | Rename a column in the upload preview |
+| `POST` | `/api/upload/drop-column` | Drop a column from the upload preview |
 | `POST` | `/api/upload/confirm` | Confirm the uploaded source as active |
+| `POST` | `/api/database/connect` | Connect to a PostgreSQL or MySQL database |
+| `GET` | `/api/database/connections` | List all external database connections |
+| `DELETE` | `/api/database/connections/{id}` | Remove an external database connection |
 | `GET` | `/api/conversations` | List conversations |
 | `POST` | `/api/conversations` | Create a new conversation |
 | `GET` | `/api/conversations/{id}` | Get a conversation with its messages |
 | `DELETE` | `/api/conversations/{id}` | Delete a conversation |
 | `PATCH` | `/api/conversations/{id}` | Rename a conversation |
+| `POST` | `/api/logs` | Receive frontend log entries |
 
 ---
 
@@ -532,50 +585,55 @@ UV_PROJECT_ENVIRONMENT=.venv_local uv run pytest tests/ -v -m "not integration"
 
 ```
 Datagentra/
-├── setup.sh                    # Configuration wizard + launcher
-├── docker-compose.yml          # Backend + frontend + db-init
-├── db/
-│   ├── seed_sqlite.py          # Creates datagentra.db with sample data
-│   ├── datagentra.db           # E-commerce: 15 tables, ~500 users, ~3 500 orders
-│   └── conversations.db        # Conversation history (auto-created)
-├── backend/
-│   ├── Dockerfile
-│   ├── pyproject.toml          # Python dependencies (uv)
-│   ├── .env.example            # Configuration template
-│   └── app/
-│       ├── __init__.py         # Loads .env on startup
-│       ├── main.py             # FastAPI endpoints
-│       ├── agent.py            # Text-to-SQL pipeline (5 steps)
-│       ├── database.py         # SQLite engines + DDL helpers + read-only enforcement
-│       ├── conversations.py    # Conversation history CRUD
-│       ├── data_loader.py      # CSV/SQLite loader + NLP corrections
-│       └── llm_provider.py     # Ollama/OpenAI factory
-│   └── tests/                  # Test suite (pytest)
-└── frontend/
-    ├── Dockerfile
-    ├── package.json            # Node dependencies
-    ├── .env.example            # Configuration template
-    ├── statics/
-    │   ├── logo.png            # Logo (transparent background)
-    │   └── datagentra.png      # Wordmark logo + text (transparent background)
-    └── src/
-        ├── App.tsx             # Layout: sidebar + chat + schema. Theme in localStorage
-        ├── hooks/
-        │   └── useDatagentra.ts    # Central hook: state + API calls
-        └── components/
-            ├── ChatInterface.tsx       # Chat UI with messages, charts, and SQL
-            ├── SchemaExplorer.tsx      # Visual navigation of the active schema
-            ├── DataSourcePanel.tsx     # Upload + preview + correction
-            ├── SetupWizard.tsx         # LLM configuration wizard
-            ├── SettingsModal.tsx       # Post-setup configuration modal
-            └── charts/
-                ├── DynamicChart.tsx         # Chart router
-                ├── BarChartComponent.tsx
-                ├── LineChartComponent.tsx
-                ├── PieChartComponent.tsx
-                ├── ScatterChartComponent.tsx
-                ├── TableComponent.tsx       # Tabular chart type
-                └── KPICard.tsx              # Single metric display
++-- setup.sh                    # Configuration wizard + launcher
++-- docker-compose.yml          # Backend + frontend + db-init
++-- db/
+|   +-- seed_sqlite.py          # Creates datagentra.db with sample data
+|   +-- datagentra.db           # E-commerce: 15 tables, ~500 users, ~3 500 orders
+|   +-- conversations.db        # Conversation history (auto-created)
++-- backend/
+|   +-- Dockerfile
+|   +-- pyproject.toml          # Python dependencies (uv)
+|   +-- .env.example            # Configuration template
+|   +-- app/
+|   |   +-- __init__.py         # Loads .env on startup
+|   |   +-- main.py             # FastAPI endpoints
+|   |   +-- agent.py            # Text-to-SQL pipeline (6 steps)
+|   |   +-- database.py         # SQLite engines + DDL helpers + external connections + read-only enforcement
+|   |   +-- conversations.py    # Conversation history CRUD
+|   |   +-- data_loader.py      # CSV/Excel/SQLite loader + column editing + NLP corrections
+|   |   +-- llm_provider.py     # Ollama/OpenAI factory
+|   |   +-- logger.py           # Structured logging + frontend log ingestion
+|   +-- tests/                  # Test suite (pytest)
++-- frontend/
+    +-- Dockerfile
+    +-- package.json            # Node dependencies
+    +-- .env.example            # Configuration template
+    +-- statics/
+    |   +-- logo.png            # Logo (transparent background)
+    |   +-- datagentra.png      # Wordmark logo + text (transparent background)
+    +-- src/
+        +-- App.tsx             # Layout: sidebar + chat + schema/sql panel. Theme in localStorage
+        +-- lib/
+        |   +-- utils.ts        # cn() utility (tailwind-merge)
+        +-- hooks/
+        |   +-- useDatagentra.ts    # Central hook: state + API calls
+        +-- components/
+            +-- ChatInterface.tsx       # Chat UI with messages, charts, and SQL
+            +-- SchemaExplorer.tsx      # Visual navigation of the active schema
+            +-- AddDataSourceModal.tsx  # Unified modal: Local files / PostgreSQL / MySQL
+            +-- SetupWizard.tsx         # LLM configuration wizard (first launch)
+            +-- SettingsModal.tsx       # Post-setup configuration modal
+            +-- SyntaxHighlighter.tsx   # SQL syntax highlighting component
+            +-- charts/
+                +-- DynamicChart.tsx         # Chart router
+                +-- BarChartComponent.tsx
+                +-- LineChartComponent.tsx
+                +-- PieChartComponent.tsx
+                +-- ScatterChartComponent.tsx
+                +-- TableComponent.tsx       # Tabular chart type
+                +-- KPICard.tsx              # Single metric display
+                +-- useChartTheme.ts         # Shared chart theme hook
 ```
 
 ---
@@ -639,9 +697,9 @@ Model ranking for data analysis use cases (source: LLM leaderboard — Data Anal
 
 | Model | Data Analysis | Reasoning | Overall | Tier |
 |---|---|---|---|---|
-| `GPT-5.4 Thinking` | 79.3 | 88.1 | 80.3 | 🥇 Best |
-| `GPT-5.2 High` | 78.2 | 83.2 | 74.8 | 🥈 |
-| `GPT-5.2 Codex` | 78.2 | 77.7 | 74.3 | 🥈 |
+| `GPT-5.4 Thinking` | 79.3 | 88.1 | 80.3 | Best |
+| `GPT-5.2 High` | 78.2 | 83.2 | 74.8 | High |
+| `GPT-5.2 Codex` | 78.2 | 77.7 | 74.3 | High |
 | `GPT-5.1 Codex Max High` | 70.1 | 83.7 | 74.0 | High |
 | `GPT-5.4 Mini xHigh` | 71.0 | 72.5 | 67.5 | Balanced |
 | `GPT-5 Mini High` | 55.2 | 68.3 | 65.9 | Economy |
@@ -681,12 +739,15 @@ Theme preference (light/dark) is automatically persisted in `localStorage`.
 | Docker: `db-init` fails | Check that `./db/seed_sqlite.py` exists and is readable |
 | Docker: frontend cannot connect to backend | `VITE_API_URL` must be `http://localhost:8000` (accessed from the host browser) |
 | Port 8000 or 5173 in use (local) | `setup.sh` frees them automatically; in Docker run `docker compose down` first |
-| CSV with wrong inferred types | Use the natural language correction field before confirming the source |
+| CSV with wrong inferred types | Use the column editor or natural language correction before confirming |
+| External DB connection lost after restart | Connections are in-memory — reconnect from the UI after restarting the backend |
 
 ### View logs locally
 ```bash
-tail -f backend.log   # backend logs
-tail -f frontend.log  # frontend logs
+tail -f logs/backend/startup.log   # backend startup
+tail -f logs/backend/app.log       # backend application
+tail -f logs/frontend/startup.log  # frontend startup
+tail -f logs/frontend/client.log   # frontend client (browser)
 ```
 
 ### Verify the backend is responding
