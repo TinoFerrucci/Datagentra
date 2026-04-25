@@ -172,14 +172,15 @@ for port in 8000 5173; do
     fi
 done
 
-BACKEND_LOG="${SCRIPT_DIR}/backend.log"
-FRONTEND_LOG="${SCRIPT_DIR}/frontend.log"
+mkdir -p "${SCRIPT_DIR}/logs/backend" "${SCRIPT_DIR}/logs/frontend"
+BACKEND_LOG="${SCRIPT_DIR}/logs/backend/startup.log"
+FRONTEND_LOG="${SCRIPT_DIR}/logs/frontend/startup.log"
 
-info "Starting backend  → logs in backend.log"
+info "Starting backend  → startup logs in logs/backend/startup.log | app logs in logs/backend/app.log"
 (cd "${SCRIPT_DIR}/backend" && uv run uvicorn app.main:app --port 8000) > "$BACKEND_LOG" 2>&1 &
 BACKEND_PID=$!
 
-info "Starting frontend → logs in frontend.log"
+info "Starting frontend → startup logs in logs/frontend/startup.log | client logs in logs/frontend/client.log"
 (cd "${SCRIPT_DIR}/frontend" && npm run dev) > "$FRONTEND_LOG" 2>&1 &
 FRONTEND_PID=$!
 
@@ -190,7 +191,7 @@ for i in $(seq 1 30); do
         break
     fi
     if ! kill -0 "$BACKEND_PID" 2>/dev/null; then
-        error "Backend failed to start. Check backend.log:"
+        error "Backend failed to start. Check logs/backend/startup.log:"
         tail -20 "$BACKEND_LOG"
         kill "$FRONTEND_PID" 2>/dev/null || true
         exit 1
@@ -199,7 +200,7 @@ for i in $(seq 1 30); do
 done
 
 if ! curl -sf http://localhost:8000/health &>/dev/null; then
-    error "Backend did not respond in time. Check backend.log:"
+    error "Backend did not respond in time. Check logs/backend/startup.log:"
     tail -20 "$BACKEND_LOG"
     kill "$BACKEND_PID" "$FRONTEND_PID" 2>/dev/null || true
     exit 1
@@ -214,7 +215,7 @@ for i in $(seq 1 30); do
         break
     fi
     if ! kill -0 "$FRONTEND_PID" 2>/dev/null; then
-        error "Frontend failed to start. Check frontend.log:"
+        error "Frontend failed to start. Check logs/frontend/startup.log:"
         tail -20 "$FRONTEND_LOG"
         break
     fi
@@ -228,8 +229,8 @@ echo -e "${BOLD}${GREEN}╔═════════════════�
 echo -e "${BOLD}${GREEN}║   Datagentra running at http://localhost:5173        ║${NC}"
 echo -e "${BOLD}${GREEN}╚══════════════════════════════════════════════════════╝${NC}"
 echo
-echo -e "  Backend PID:  ${YELLOW}${BACKEND_PID}${NC}   (logs: backend.log)"
-echo -e "  Frontend PID: ${YELLOW}${FRONTEND_PID}${NC}  (logs: frontend.log)"
+echo -e "  Backend PID:  ${YELLOW}${BACKEND_PID}${NC}   (startup: logs/backend/startup.log | app: logs/backend/app.log)"
+echo -e "  Frontend PID: ${YELLOW}${FRONTEND_PID}${NC}  (startup: logs/frontend/startup.log | client: logs/frontend/client.log)"
 echo
 echo -e "  To stop: ${CYAN}kill ${BACKEND_PID} ${FRONTEND_PID}${NC}"
 echo

@@ -32,6 +32,17 @@ def _make_mock_llm(*responses):
     return mock
 
 
+# Default planner JSON used as the first LLM call in pipeline tests.
+_PLAN_DEFAULT = (
+    '{"intent": "exploration", "row_limit": 10, "needs_chart": true, '
+    '"chart_hint": "bar", "user_wants_extensive": false, "reasoning": "test"}'
+)
+_PLAN_EXTENSIVE = (
+    '{"intent": "listing", "row_limit": null, "needs_chart": true, '
+    '"chart_hint": "table", "user_wants_extensive": true, "reasoning": "test"}'
+)
+
+
 # ---------------------------------------------------------------------------
 # Full pipeline
 # ---------------------------------------------------------------------------
@@ -40,7 +51,7 @@ def test_full_pipeline_valid_sql(mem_engine_with_data):
     sql_response = "SELECT * FROM products LIMIT 3"
     summary_response = "There are 3 products."
     chart_response = "bar"
-    mock_llm = _make_mock_llm(sql_response, summary_response, chart_response)
+    mock_llm = _make_mock_llm(_PLAN_DEFAULT, sql_response, summary_response, chart_response)
 
     with patch("app.agent.get_llm", return_value=mock_llm), \
          patch("app.agent.get_schema_ddl", return_value="TABLE products (id INT, name TEXT, price REAL)"):
@@ -53,6 +64,8 @@ def test_full_pipeline_valid_sql(mem_engine_with_data):
     assert result["chart_type"] == "bar"
     assert "question" in result
     assert "summary" in result
+    assert "plan" in result
+    assert result["plan"]["row_limit"] == 10
 
 
 # ---------------------------------------------------------------------------
@@ -64,13 +77,13 @@ def test_retry_on_bad_sql(mem_engine_with_data):
     good_sql = "SELECT * FROM products LIMIT 1"
     summary = "One product found."
     chart = "metric"
-    mock_llm = _make_mock_llm(bad_sql, good_sql, summary, chart)
+    mock_llm = _make_mock_llm(_PLAN_DEFAULT, bad_sql, good_sql, summary, chart)
 
     with patch("app.agent.get_llm", return_value=mock_llm), \
          patch("app.agent.get_schema_ddl", return_value="TABLE products (id INT, name TEXT)"):
         from app.agent import run_pipeline
-        # first call returns bad SQL, second call (fix) returns good SQL
-        mock_llm.invoke.side_effect = [bad_sql, good_sql, summary, chart]
+        # plan, bad SQL, fixed SQL, summary, chart
+        mock_llm.invoke.side_effect = [_PLAN_DEFAULT, bad_sql, good_sql, summary, chart]
         result = run_pipeline("Get one product", engine=mem_engine_with_data, )
 
     assert result["rows"] is not None
@@ -83,7 +96,7 @@ def test_retry_on_bad_sql(mem_engine_with_data):
 
 def test_dangerous_sql_is_blocked(mem_engine_with_data):
     drop_sql = "DROP TABLE products"
-    mock_llm = _make_mock_llm(drop_sql)
+    mock_llm = _make_mock_llm(_PLAN_DEFAULT, drop_sql)
 
     with patch("app.agent.get_llm", return_value=mock_llm), \
          patch("app.agent.get_schema_ddl", return_value="TABLE products (id INT)"):
@@ -94,13 +107,132 @@ def test_dangerous_sql_is_blocked(mem_engine_with_data):
 
 def test_delete_sql_is_blocked(mem_engine_with_data):
     delete_sql = "DELETE FROM products WHERE id=1"
-    mock_llm = _make_mock_llm(delete_sql)
+    mock_llm = _make_mock_llm(_PLAN_DEFAULT, delete_sql)
 
     with patch("app.agent.get_llm", return_value=mock_llm), \
          patch("app.agent.get_schema_ddl", return_value="TABLE products (id INT)"):
         from app.agent import run_pipeline
         with pytest.raises((PermissionError, RuntimeError)):
             run_pipeline("Remove product 1", engine=mem_engine_with_data, )
+
+
+# ---------------------------------------------------------------------------
+# Planner
+# ---------------------------------------------------------------------------
+
+def test_plan_defaults_to_compact_limit_for_ranking():
+    from app.agent import _plan_query
+    plan_json = (
+        '{"intent": "ranking", "row_limit": 10, "needs_chart": true, '
+        '"chart_hint": "bar", "user_wants_extensive": false, "reasoning": "top X"}'
+    )
+    mock_llm = _make_mock_llm(plan_json)
+    with patch("app.agent.get_llm", return_value=mock_llm):
+        plan = _plan_query("top productos más vendidos", "TABLE products (id, sales)")
+    assert plan["intent"] == "ranking"
+    assert plan["row_limit"] == 10
+    assert plan["needs_chart"] is True
+    assert plan["user_wants_extensive"] is False
+
+
+def test_plan_unlimited_when_user_wants_extensive():
+    from app.agent import _plan_query
+    mock_llm = _make_mock_llm(_PLAN_EXTENSIVE)
+    with patch("app.agent.get_llm", return_value=mock_llm):
+        plan = _plan_query("dame la lista completa de todos los productos", "TABLE products (id)")
+    assert plan["user_wants_extensive"] is True
+    assert plan["row_limit"] is None
+
+
+def test_plan_falls_back_to_defaults_on_garbage_response():
+    from app.agent import _plan_query
+    mock_llm = _make_mock_llm("not json at all, just words")
+    with patch("app.agent.get_llm", return_value=mock_llm):
+        plan = _plan_query("anything", "TABLE x (y INT)")
+    assert plan["intent"] == "exploration"
+    assert plan["row_limit"] == 10
+    assert plan["needs_chart"] is True
+
+
+def test_plan_clamps_oversized_limit_when_not_extensive():
+    from app.agent import _plan_query, EXTENSIVE_ROW_LIMIT
+    plan_json = (
+        '{"intent": "ranking", "row_limit": 9999, "needs_chart": true, '
+        '"chart_hint": "bar", "user_wants_extensive": false}'
+    )
+    mock_llm = _make_mock_llm(plan_json)
+    with patch("app.agent.get_llm", return_value=mock_llm):
+        plan = _plan_query("top productos", "TABLE x (y)")
+    assert plan["row_limit"] == EXTENSIVE_ROW_LIMIT
+
+
+def test_generate_sql_injects_limit_from_plan():
+    """The SQL prompt must instruct the LLM to apply the planner's row limit."""
+    from app.agent import _generate_sql
+    captured: dict = {}
+    mock_llm = MagicMock()
+    mock_llm.provider_name = "mock"
+    mock_llm.model = "mock-model"
+
+    def _capture(prompt: str) -> str:
+        captured["prompt"] = prompt
+        return "SELECT 1"
+
+    mock_llm.invoke.side_effect = _capture
+    plan = {
+        "intent": "ranking", "row_limit": 10, "needs_chart": True,
+        "chart_hint": "bar", "user_wants_extensive": False,
+    }
+    with patch("app.agent.get_llm", return_value=mock_llm):
+        _generate_sql("top productos", "TABLE products (id, sales)", "SQLite", plan=plan)
+
+    assert "LIMIT 10" in captured["prompt"]
+
+
+def test_generate_sql_skips_limit_when_extensive():
+    from app.agent import _generate_sql
+    captured: dict = {}
+    mock_llm = MagicMock()
+    mock_llm.provider_name = "mock"
+    mock_llm.model = "mock-model"
+
+    def _capture(prompt: str) -> str:
+        captured["prompt"] = prompt
+        return "SELECT 1"
+
+    mock_llm.invoke.side_effect = _capture
+    plan = {
+        "intent": "listing", "row_limit": None, "needs_chart": True,
+        "chart_hint": "table", "user_wants_extensive": True,
+    }
+    with patch("app.agent.get_llm", return_value=mock_llm):
+        _generate_sql("lista completa", "TABLE products (id)", "SQLite", plan=plan)
+
+    assert "complete dataset" in captured["prompt"]
+    # No fixed LIMIT N injected
+    assert "LIMIT 10" not in captured["prompt"]
+
+
+def test_suggest_chart_short_circuits_to_table_when_planner_says_no_chart():
+    """If planner sets needs_chart=False, no extra LLM call is made."""
+    from app.agent import _suggest_chart
+    mock_llm = MagicMock()
+    mock_llm.provider_name = "mock"
+    mock_llm.model = "mock-model"
+    mock_llm.invoke.side_effect = AssertionError("LLM should not be called")
+
+    plan = {
+        "intent": "exploration", "row_limit": 10, "needs_chart": False,
+        "chart_hint": None, "user_wants_extensive": False,
+    }
+    with patch("app.agent.get_llm", return_value=mock_llm):
+        chart_type, _config, _title = _suggest_chart(
+            "explica qué columnas hay",
+            ["name", "value"],
+            [["a", 1]],
+            plan=plan,
+        )
+    assert chart_type == "table"
 
 
 # ---------------------------------------------------------------------------

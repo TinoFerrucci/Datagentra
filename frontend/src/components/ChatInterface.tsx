@@ -311,6 +311,7 @@ export function ChatInterface({
 }: ChatInterfaceProps) {
   const [input, setInput] = useState('')
   const [fetchingSuggestions, setFetchingSuggestions] = useState(false)
+  const [suggestionsError, setSuggestionsError] = useState<string | null>(null)
   const bottomRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLTextAreaElement>(null)
 
@@ -334,8 +335,20 @@ export function ChatInterface({
 
   const handleFetchSuggestions = async () => {
     setFetchingSuggestions(true)
-    await onFetchSuggestions()
-    setFetchingSuggestions(false)
+    setSuggestionsError(null)
+    try {
+      await onFetchSuggestions()
+    } catch (err) {
+      const status = (err as { status?: number })?.status
+      const message = err instanceof Error ? err.message : 'Could not generate suggestions.'
+      setSuggestionsError(
+        status === 401
+          ? `${message} Open Settings to update your API key.`
+          : message
+      )
+    } finally {
+      setFetchingSuggestions(false)
+    }
   }
 
   return (
@@ -402,6 +415,11 @@ export function ChatInterface({
                 : <Sparkles className="w-3.5 h-3.5" />}
               {fetchingSuggestions ? 'Generating...' : 'Generate from schema'}
             </button>
+            {suggestionsError && (
+              <div className="text-xs text-red-600 dark:text-red-400 max-w-md text-center">
+                {suggestionsError}
+              </div>
+            )}
           </div>
         )}
 

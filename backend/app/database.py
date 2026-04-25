@@ -13,6 +13,10 @@ from sqlalchemy import create_engine, event, text
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import Session, sessionmaker
 
+from app.logger import get_logger
+
+logger = get_logger("database")
+
 _SQLITE_DB_PATH = os.getenv("SQLITE_DB_PATH", "../db/datagentra.db")
 _DATABASE_URL = os.getenv("DATABASE_URL") or f"sqlite:///{_SQLITE_DB_PATH}"
 
@@ -39,10 +43,12 @@ def _make_readonly_engine(url: str) -> Engine:
     def _block_writes(conn, cursor, statement, parameters, context, executemany):
         first_token = statement.strip().split()[0].lower() if statement.strip() else ""
         if first_token in FORBIDDEN:
+            logger.error("Write blocked on read-only engine | op=%s | url=%s", first_token.upper(), url)
             raise PermissionError(
                 f"Write operation '{first_token.upper()}' is not allowed on the read-only engine."
             )
 
+    logger.debug("Read-only engine created | url=%s", url)
     return engine
 
 

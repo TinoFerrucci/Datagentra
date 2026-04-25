@@ -4,6 +4,10 @@ from __future__ import annotations
 import os
 from typing import Protocol
 
+from app.logger import get_logger
+
+logger = get_logger("llm")
+
 
 class LLMProvider(Protocol):
     def invoke(self, prompt: str) -> str: ...
@@ -59,11 +63,13 @@ def get_llm_provider() -> OllamaProvider | OpenAIProvider:
         if not api_key:
             raise ValueError("OPENAI_API_KEY is not set in environment variables.")
         model = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
+        logger.info("LLM initialized | provider=openai | model=%s", model)
         return OpenAIProvider(api_key=api_key, model=model)
 
     # Default: ollama
     base_url = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
     model = os.getenv("OLLAMA_MODEL", "qwen2.5:7b")
+    logger.info("LLM initialized | provider=ollama | model=%s | base_url=%s", model, base_url)
     return OllamaProvider(base_url=base_url, model=model)
 
 
@@ -81,4 +87,5 @@ def get_llm() -> OllamaProvider | OpenAIProvider:
 def reset_llm() -> None:
     """Reset the singleton (useful for testing)."""
     global _llm_instance
+    logger.info("LLM singleton reset")
     _llm_instance = None

@@ -223,3 +223,7 @@ backend/.env
 db/conversations.db
 db/conversations.db-shm
 db/conversations.db-wal
+
+# Logs — keep folder structure (.gitkeep), ignore actual log files
+logs/**/*.log
+logs/**/*.log.*

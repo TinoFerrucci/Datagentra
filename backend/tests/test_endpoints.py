@@ -58,8 +58,15 @@ def test_health(client):
 # /api/ask
 # ---------------------------------------------------------------------------
 
+_PLAN_DEFAULT = (
+    '{"intent": "exploration", "row_limit": 10, "needs_chart": true, '
+    '"chart_hint": "bar", "user_wants_extensive": false, "reasoning": "test"}'
+)
+
+
 def test_ask_returns_required_fields(test_engine):
     mock_llm = _make_mock_llm([
+        _PLAN_DEFAULT,
         "SELECT * FROM products LIMIT 2",
         "Two products found with prices 10 and 20.",
         "bar",
@@ -72,12 +79,13 @@ def test_ask_returns_required_fields(test_engine):
             resp = c.post("/api/ask", json={"question": "Show me all products"})
     assert resp.status_code == 200, resp.text
     data = resp.json()
-    for field in ("question", "sql", "columns", "rows", "summary", "chart_type"):
+    for field in ("question", "sql", "columns", "rows", "summary", "chart_type", "plan"):
         assert field in data, f"Missing field: {field}"
+    assert data["plan"]["row_limit"] == 10
 
 
 def test_ask_returns_error_on_pipeline_failure(test_engine):
-    mock_llm = _make_mock_llm(["NOT VALID SQL $$$$$$$$$"])
+    mock_llm = _make_mock_llm([_PLAN_DEFAULT, "NOT VALID SQL $$$$$$$$$"])
     from app.main import app
     with patch("app.agent.readonly_engine", test_engine), \
          patch("app.agent.get_llm", return_value=mock_llm), \
@@ -200,3 +208,64 @@ def test_switch_to_sqlite_default(client):
 def test_switch_to_nonexistent_session_returns_404(client):
     resp = client.put("/api/datasource", json={"source_id": "nonexistent-xyz"})
     assert resp.status_code == 404
+
+
+# ---------------------------------------------------------------------------
+# /api/suggest — auth error mapping
+# ---------------------------------------------------------------------------
+
+class _FakeAuthError(Exception):
+    """Simulates the openai.AuthenticationError shape."""
+    def __init__(self, message: str = "Incorrect API key provided"):
+        super().__init__(message)
+        self.status_code = 401
+
+
+def test_suggest_returns_401_on_llm_auth_error(test_engine):
+    mock_llm = MagicMock()
+    mock_llm.provider_name = "openai"
+    mock_llm.model = "gpt-4o-mini"
+    mock_llm.invoke.side_effect = _FakeAuthError()
+
+    from app.main import app
+    with patch("app.main.readonly_engine", test_engine), \
+         patch("app.database.readonly_engine", test_engine), \
+         patch("app.main.get_llm", return_value=mock_llm):
+        with TestClient(app) as c:
+            resp = c.get("/api/suggest")
+
+    assert resp.status_code == 401
+    assert "API key" in resp.json()["detail"]
+
+
+def test_suggest_returns_401_on_message_based_auth_error(test_engine):
+    """Even if status_code is missing, message keywords should map to 401."""
+    mock_llm = MagicMock()
+    mock_llm.provider_name = "openai"
+    mock_llm.model = "gpt-4o-mini"
+    mock_llm.invoke.side_effect = RuntimeError("Error code: 401 - {'error': {'message': 'Incorrect API key'}}")
+
+    from app.main import app
+    with patch("app.main.readonly_engine", test_engine), \
+         patch("app.database.readonly_engine", test_engine), \
+         patch("app.main.get_llm", return_value=mock_llm):
+        with TestClient(app) as c:
+            resp = c.get("/api/suggest")
+
+    assert resp.status_code == 401
+
+
+def test_suggest_returns_500_on_generic_failure(test_engine):
+    mock_llm = MagicMock()
+    mock_llm.provider_name = "ollama"
+    mock_llm.model = "qwen2.5"
+    mock_llm.invoke.side_effect = RuntimeError("connection refused")
+
+    from app.main import app
+    with patch("app.main.readonly_engine", test_engine), \
+         patch("app.database.readonly_engine", test_engine), \
+         patch("app.main.get_llm", return_value=mock_llm):
+        with TestClient(app) as c:
+            resp = c.get("/api/suggest")
+
+    assert resp.status_code == 500

@@ -6,6 +6,7 @@ import json
 import os
 import re
 import threading
+import time
 from typing import Any, Optional
 
 from fastapi import FastAPI, File, HTTPException, Request, UploadFile
@@ -25,12 +26,17 @@ from app.agent import (
     _fix_sql,
     _generate_sql,
     _get_db_type,
+    _plan_query,
     _serialize_rows,
     _suggest_chart,
     run_pipeline,
 )
 from app.database import get_schema_ddl, get_schema_info, readonly_engine
+from app.logger import attach_to_uvicorn, get_frontend_logger, get_logger
 from app.llm_provider import get_llm
+
+logger = get_logger("api")
+frontend_logger = get_frontend_logger()
 
 # ---------------------------------------------------------------------------
 # App setup
@@ -55,6 +61,34 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+
+@app.middleware("http")
+async def log_requests(request: Request, call_next):
+    t0 = time.perf_counter()
+    response = await call_next(request)
+    duration_ms = (time.perf_counter() - t0) * 1000
+    logger.info(
+        "%s %s %d %.0fms | ip=%s",
+        request.method,
+        request.url.path,
+        response.status_code,
+        duration_ms,
+        request.client.host if request.client else "unknown",
+    )
+    return response
+
+
+@app.on_event("startup")
+async def on_startup():
+    attach_to_uvicorn()
+    logger.info("Datagentra API started")
+
+
+@app.on_event("shutdown")
+async def on_shutdown():
+    logger.info("Datagentra API shutting down")
+
+
 # Initialize conversation database on startup
 conv.init_db()
 
@@ -66,12 +100,59 @@ _active_source: dict = {"id": "sqlite_default", "type": "sqlite"}
 
 
 # ---------------------------------------------------------------------------
+# LLM error detection
+# ---------------------------------------------------------------------------
+
+_AUTH_ERROR_KEYWORDS = (
+    "invalid_api_key",
+    "incorrect api key",
+    "invalid api key",
+    "authentication",
+    "unauthorized",
+)
+
+INVALID_API_KEY_MESSAGE = (
+    "Invalid or expired API key. Please update your API key in Settings."
+)
+
+
+def _is_llm_auth_error(exc: BaseException) -> bool:
+    """Return True when an LLM provider raised a 401-equivalent error."""
+    status = getattr(exc, "status_code", None) or getattr(exc, "http_status", None)
+    if status == 401:
+        return True
+
+    response = getattr(exc, "response", None)
+    response_status = getattr(response, "status_code", None) if response is not None else None
+    if response_status == 401:
+        return True
+
+    if exc.__class__.__name__ in ("AuthenticationError", "PermissionDeniedError"):
+        return True
+
+    msg = str(exc).lower()
+    if "401" in msg or any(kw in msg for kw in _AUTH_ERROR_KEYWORDS):
+        return True
+
+    return False
+
+
+# ---------------------------------------------------------------------------
 # Models
 # ---------------------------------------------------------------------------
 
 class ChartConfig(BaseModel):
     x_key: str = ""
     y_keys: list[str] = []
+
+
+class QueryPlan(BaseModel):
+    intent: str = "exploration"
+    row_limit: Optional[int] = None
+    needs_chart: bool = True
+    chart_hint: Optional[str] = None
+    user_wants_extensive: bool = False
+    reasoning: str = ""
 
 
 class AskResponse(BaseModel):
@@ -83,6 +164,7 @@ class AskResponse(BaseModel):
     chart_type: str
     chart_config: ChartConfig
     chart_title: str
+    plan: QueryPlan
     source: str
     llm_provider: str
     llm_model: str
@@ -165,6 +247,7 @@ async def ask_stream(request: Request, req: AskRequest):
     """Streaming pipeline: yields NDJSON events as each step completes.
 
     Events:
+      {"event": "plan",         "plan": {...}}
       {"event": "sql",          "sql": "..."}
       {"event": "data",         "columns": [...], "rows": [...]}
       {"event": "summary_chunk","chunk": "..."}
@@ -188,8 +271,12 @@ async def ask_stream(request: Request, req: AskRequest):
             db_type = _get_db_type(engine)
             ddl = await asyncio.to_thread(get_schema_ddl, engine)
 
-            # Step 1: Generate SQL
-            sql = await asyncio.to_thread(_generate_sql, req.question, ddl, db_type, history)
+            # Step 1: Plan
+            plan = await asyncio.to_thread(_plan_query, req.question, ddl, history)
+            yield json.dumps({"event": "plan", "plan": plan}) + "\n"
+
+            # Step 2: Generate SQL (using the plan)
+            sql = await asyncio.to_thread(_generate_sql, req.question, ddl, db_type, history, plan)
             yield json.dumps({"event": "sql", "sql": sql}) + "\n"
 
             # Step 2: Execute with retries
@@ -252,9 +339,9 @@ async def ask_stream(request: Request, req: AskRequest):
 
             summary = re.sub(r"<think>[\s\S]*?</think>", "", summary, flags=re.IGNORECASE).strip()
 
-            # Step 4: Chart suggestion
+            # Step 4: Chart suggestion (planner-aware)
             chart_type, chart_config, chart_title = await asyncio.to_thread(
-                _suggest_chart, req.question, columns, rows
+                _suggest_chart, req.question, columns, rows, plan
             )
             yield json.dumps({"event": "chart", "chart_type": chart_type, "chart_config": chart_config, "chart_title": chart_title}) + "\n"
 
@@ -275,6 +362,7 @@ async def ask_stream(request: Request, req: AskRequest):
                 "chart_type": chart_type,
                 "chart_config": chart_config,
                 "chart_title": chart_title,
+                "plan": plan,
                 "source": session_id or "sqlite_default",
                 "llm_provider": llm.provider_name,
                 "llm_model": llm.model,
@@ -333,7 +421,12 @@ Questions:"""
         ][:8]
 
         return {"questions": questions}
+    except HTTPException:
+        raise
     except Exception as exc:
+        if _is_llm_auth_error(exc):
+            logger.warning("LLM auth error on /api/suggest | %s", str(exc)[:200])
+            raise HTTPException(status_code=401, detail=INVALID_API_KEY_MESSAGE)
         raise HTTPException(status_code=500, detail=str(exc))
 
 
@@ -621,6 +714,35 @@ async def get_openai_models_current():
         and not any(m["id"].startswith(p) for p in _OPENAI_MODEL_EXCLUDE_PREFIXES)
     ]
     return {"valid": True, "models": _sort_openai_models(models)}
+
+
+# ------ Frontend log ingestion ------
+
+class FrontendLogEntry(BaseModel):
+    level: str           # "debug" | "info" | "warn" | "error"
+    message: str
+    context: Optional[dict] = None
+    timestamp: Optional[str] = None
+
+
+_FRONTEND_LOG_LEVELS = {
+    "debug": 10,
+    "info": 20,
+    "warn": 30,
+    "warning": 30,
+    "error": 40,
+}
+
+
+@app.post("/api/logs")
+async def ingest_frontend_log(entry: FrontendLogEntry):
+    """Receive a log entry from the browser and write it to logs/frontend/client.log."""
+    import logging as _logging
+    level = _FRONTEND_LOG_LEVELS.get(entry.level.lower(), 20)
+    ctx = f" | ctx={entry.context}" if entry.context else ""
+    ts = f" | ts={entry.timestamp}" if entry.timestamp else ""
+    frontend_logger.log(level, "[%s]%s%s %s", entry.level.upper(), ts, ctx, entry.message)
+    return {"ok": True}
 
 
 class OpenAIValidateRequest(BaseModel):

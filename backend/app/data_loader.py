@@ -11,6 +11,10 @@ from typing import Any
 import pandas as pd
 from sqlalchemy import create_engine, inspect as sa_inspect, text
 
+from app.logger import get_logger
+
+logger = get_logger("data_loader")
+
 MAX_COLUMNS = 30
 MAX_TABLES = 20
 MAX_FILE_SIZE_MB = int(os.getenv("MAX_UPLOAD_SIZE_MB", "50"))
@@ -97,15 +101,19 @@ def _analyze_dataframe(df: pd.DataFrame) -> dict:
 def load_csv(content: bytes, filename: str) -> dict:
     """Load, validate, and analyze a CSV file. Returns session data."""
     size_mb = len(content) / (1024 * 1024)
+    logger.info("CSV upload | filename=%s | size=%.2fMB", filename, size_mb)
     if size_mb > MAX_FILE_SIZE_MB:
+        logger.warning("CSV rejected: size %.2fMB exceeds limit %dMB", size_mb, MAX_FILE_SIZE_MB)
         raise ValidationError(f"File exceeds maximum size of {MAX_FILE_SIZE_MB}MB (got {size_mb:.1f}MB).")
 
     try:
         df = pd.read_csv(io.BytesIO(content))
     except Exception as exc:
+        logger.error("CSV parse error | filename=%s | error=%s", filename, exc)
         raise ValidationError(f"Could not parse CSV: {exc}") from exc
 
     if len(df.columns) > MAX_COLUMNS:
+        logger.warning("CSV rejected: %d columns exceeds limit %d", len(df.columns), MAX_COLUMNS)
         raise ValidationError(
             f"CSV has {len(df.columns)} columns but maximum allowed is {MAX_COLUMNS}. "
             "Please reduce the number of columns before uploading."
@@ -126,6 +134,7 @@ def load_csv(content: bytes, filename: str) -> dict:
     }
 
     set_session(session_id, session_data)
+    logger.info("CSV loaded | session=%s | rows=%d | cols=%d", session_id, len(df), len(df.columns))
     return _build_response(session_data)
 
 
@@ -149,7 +158,9 @@ def _build_response(session_data: dict) -> dict:
 def load_sqlite(content: bytes, filename: str) -> dict:
     """Load, validate, and analyze a SQLite .db file."""
     size_mb = len(content) / (1024 * 1024)
+    logger.info("SQLite upload | filename=%s | size=%.2fMB", filename, size_mb)
     if size_mb > MAX_FILE_SIZE_MB:
+        logger.warning("SQLite rejected: size %.2fMB exceeds limit %dMB", size_mb, MAX_FILE_SIZE_MB)
         raise ValidationError(f"File exceeds maximum size of {MAX_FILE_SIZE_MB}MB.")
 
     # Write to temp file
@@ -210,6 +221,7 @@ def load_sqlite(content: bytes, filename: str) -> dict:
     }
 
     set_session(session_id, session_data)
+    logger.info("SQLite loaded | session=%s | tables=%d | names=%s", session_id, len(tables), tables)
 
     return {
         "session_id": session_id,
@@ -231,8 +243,10 @@ def apply_correction(session_id: str, prompt: str) -> dict:
     import json
     import re
 
+    logger.info("Applying correction | session=%s | prompt=%s", session_id, prompt[:120])
     session = get_session(session_id)
     if session is None:
+        logger.warning("Correction failed: session not found | session=%s", session_id)
         raise ValidationError(f"Session '{session_id}' not found.")
     if session["source_type"] != "csv":
         raise ValidationError("Corrections are only supported for CSV sources.")
@@ -314,6 +328,7 @@ JSON:"""
     session["columns_info"] = _analyze_dataframe(df)
     session["preview_rows"] = df.head(10).fillna("").to_dict(orient="records")
     set_session(session_id, session)
+    logger.info("Correction applied | session=%s | action=%s", session_id, action_type)
 
     return _build_response(session)
 
