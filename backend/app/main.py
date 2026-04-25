@@ -17,8 +17,6 @@ from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 from slowapi.util import get_remote_address
 
-from app import conversations as conv
-from app import data_loader as dl
 from app.agent import (
     MAX_RETRIES,
     _build_summary_prompt,
@@ -32,8 +30,16 @@ from app.agent import (
     run_pipeline,
 )
 from app.database import get_schema_ddl, get_schema_info, readonly_engine
+from app.database import (
+    register_external_connection,
+    get_external_engine,
+    list_external_connections,
+    remove_external_connection,
+)
 from app.logger import attach_to_uvicorn, get_frontend_logger, get_logger
 from app.llm_provider import get_llm
+from app import data_loader as dl
+from app import conversations as conv
 
 logger = get_logger("api")
 frontend_logger = get_frontend_logger()
@@ -196,6 +202,62 @@ class SetupRequest(BaseModel):
     api_key: Optional[str] = None
 
 
+class DatabaseConnectRequest(BaseModel):
+    db_type: str  # "postgres" | "mysql"
+    host: str
+    port: int
+    database: str
+    user: str
+    password: str
+    name: Optional[str] = None
+
+
+class RenameColumnRequest(BaseModel):
+    session_id: str
+    old_name: str
+    new_name: str
+
+
+class DropColumnRequest(BaseModel):
+    session_id: str
+    column_name: str
+
+
+# ------ External database connections ------
+
+@app.post("/api/database/connect")
+async def connect_database(req: DatabaseConnectRequest):
+    if req.db_type not in ("postgres", "mysql"):
+        raise HTTPException(status_code=422, detail="db_type must be 'postgres' or 'mysql'.")
+    import uuid as _uuid
+    conn_id = f"{req.db_type}_{_uuid.uuid4().hex[:8]}"
+    try:
+        result = await asyncio.to_thread(
+            register_external_connection,
+            conn_id, req.db_type, req.host, req.port,
+            req.database, req.user, req.password, req.name or "",
+        )
+    except Exception as exc:
+        raise HTTPException(status_code=422, detail=f"Connection failed: {exc}")
+    return {"status": "ok", "connection": result}
+
+
+@app.get("/api/database/connections")
+async def list_db_connections():
+    return {"connections": list_external_connections()}
+
+
+@app.delete("/api/database/connections/{conn_id}")
+async def delete_db_connection(conn_id: str):
+    if _active_source.get("id") == conn_id:
+        _active_source["id"] = "sqlite_default"
+        _active_source["type"] = "sqlite"
+    removed = await asyncio.to_thread(remove_external_connection, conn_id)
+    if not removed:
+        raise HTTPException(status_code=404, detail="Connection not found.")
+    return {"status": "ok"}
+
+
 # ---------------------------------------------------------------------------
 # Routes
 # ---------------------------------------------------------------------------
@@ -212,12 +274,29 @@ async def health():
 async def ask(request: Request, req: AskRequest):
     """Main pipeline: natural language → SQL → results → chart."""
     try:
-        session_id = req.session_id or (
-            _active_source.get("id") if _active_source["type"] not in ("postgres", "sqlite") else None
-        )
+        source_type = _active_source.get("type", "sqlite")
+        if req.session_id:
+            session_id = req.session_id
+        elif source_type in ("postgres", "mysql"):
+            session_id = _active_source.get("id")
+        else:
+            session_id = None
         # Fetch conversation history for context-aware SQL generation
         history = conv.get_recent_history(req.conversation_id) if req.conversation_id else []
-        result = run_pipeline(question=req.question, session_id=session_id, history=history)
+
+        if session_id and source_type in ("postgres", "mysql"):
+            ext_engine = await asyncio.to_thread(get_external_engine, session_id)
+            if ext_engine:
+                result = await asyncio.to_thread(
+                    run_pipeline, question=req.question, session_id=session_id, history=history
+                )
+                result["source"] = session_id
+            else:
+                raise HTTPException(status_code=404, detail="External connection not found.")
+        else:
+            result = await asyncio.to_thread(
+                run_pipeline, question=req.question, session_id=session_id, history=history
+            )
     except PermissionError as exc:
         raise HTTPException(status_code=403, detail=str(exc))
     except RuntimeError as exc:
@@ -257,14 +336,20 @@ async def ask_stream(request: Request, req: AskRequest):
     """
     async def generate():
         try:
-            session_id = req.session_id or (
-                _active_source.get("id") if _active_source["type"] not in ("postgres", "sqlite") else None
-            )
+            session_id = req.session_id
+            if not session_id:
+                source_type = _active_source.get("type", "sqlite")
+                if source_type in ("postgres", "mysql"):
+                    session_id = _active_source.get("id")
             history = conv.get_recent_history(req.conversation_id) if req.conversation_id else []
 
             if session_id:
-                from app.data_loader import get_engine_for_session
-                engine = get_engine_for_session(session_id) or readonly_engine
+                ext_engine = await asyncio.to_thread(get_external_engine, session_id)
+                if ext_engine:
+                    engine = ext_engine
+                else:
+                    from app.data_loader import get_engine_for_session
+                    engine = get_engine_for_session(session_id) or readonly_engine
             else:
                 engine = readonly_engine
 
@@ -388,7 +473,11 @@ async def suggest_questions(request: Request):
     source_type = _active_source["type"]
     source_id = _active_source["id"]
 
-    if source_type in ("postgres", "sqlite"):
+    if source_type in ("postgres", "mysql"):
+        engine = await asyncio.to_thread(get_external_engine, source_id)
+        if engine is None:
+            raise HTTPException(status_code=404, detail="External connection not found.")
+    elif source_type == "sqlite":
         engine = readonly_engine
     else:
         from app.data_loader import get_engine_for_session
@@ -468,14 +557,14 @@ async def rename_conversation(conv_id: str, req: ConversationRename):
 
 @app.post("/api/upload")
 async def upload_file(file: UploadFile = File(...)):
-    """Upload a CSV or SQLite .db file."""
+    """Upload a CSV, Excel or SQLite .db file."""
     filename = file.filename or "upload"
     ext = filename.rsplit(".", 1)[-1].lower() if "." in filename else ""
 
-    if ext not in ("csv", "db"):
+    if ext not in ("csv", "db", "xlsx", "xls"):
         raise HTTPException(
             status_code=422,
-            detail=f"Unsupported file type '.{ext}'. Only .csv and .db (SQLite) are accepted.",
+            detail=f"Unsupported file type '.{ext}'. Accepted: .csv, .xlsx, .db",
         )
 
     content = await file.read()
@@ -483,6 +572,8 @@ async def upload_file(file: UploadFile = File(...)):
     try:
         if ext == "csv":
             result = dl.load_csv(content, filename)
+        elif ext in ("xlsx", "xls"):
+            result = dl.load_excel(content, filename)
         else:
             result = dl.load_sqlite(content, filename)
     except dl.ValidationError as exc:
@@ -496,6 +587,24 @@ async def fix_upload(req: FixRequest):
     """Apply a natural-language correction to an uploaded CSV."""
     try:
         result = dl.apply_correction(req.session_id, req.prompt)
+        return result
+    except dl.ValidationError as exc:
+        raise HTTPException(status_code=422, detail=str(exc))
+
+
+@app.post("/api/upload/rename-column")
+async def rename_column(req: RenameColumnRequest):
+    try:
+        result = dl.rename_column(req.session_id, req.old_name, req.new_name)
+        return result
+    except dl.ValidationError as exc:
+        raise HTTPException(status_code=422, detail=str(exc))
+
+
+@app.post("/api/upload/drop-column")
+async def drop_column(req: DropColumnRequest):
+    try:
+        result = dl.drop_column(req.session_id, req.column_name)
         return result
     except dl.ValidationError as exc:
         raise HTTPException(status_code=422, detail=str(exc))
@@ -523,7 +632,12 @@ async def get_schema():
         source_id = _active_source["id"]
         source_type = _active_source["type"]
 
-        if source_type in ("postgres", "sqlite"):
+        if source_type in ("postgres", "mysql"):
+            ext_engine = get_external_engine(source_id)
+            if ext_engine is None:
+                raise HTTPException(status_code=404, detail="External connection not found.")
+            schema = get_schema_info(ext_engine)
+        elif source_type == "sqlite":
             schema = get_schema_info(readonly_engine)
         else:
             from app.data_loader import get_engine_for_session
@@ -566,6 +680,14 @@ async def list_datasources():
                 "active": _active_source["id"] == session_id,
             })
 
+    for ext in list_external_connections():
+        sources.append({
+            "id": ext["id"],
+            "type": ext["type"],
+            "name": ext["name"],
+            "active": _active_source["id"] == ext["id"],
+        })
+
     return {"sources": sources, "active": _active_source}
 
 
@@ -576,6 +698,15 @@ async def switch_datasource(req: DataSourceSwitch):
         _active_source["id"] = "sqlite_default"
         _active_source["type"] = "sqlite"
         return {"status": "ok", "active_source": _active_source}
+
+    ext_engine = await asyncio.to_thread(get_external_engine, req.source_id)
+    if ext_engine is not None:
+        ext_conns = list_external_connections()
+        ext_info = next((c for c in ext_conns if c["id"] == req.source_id), None)
+        if ext_info:
+            _active_source["id"] = req.source_id
+            _active_source["type"] = ext_info["type"]
+            return {"status": "ok", "active_source": _active_source}
 
     session = dl.get_session(req.source_id)
     if session is None:

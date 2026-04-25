@@ -68,6 +68,16 @@ export interface DataSource {
   active: boolean
 }
 
+export interface ExternalConnection {
+  id: string
+  type: string
+  name: string
+  host: string
+  port: number
+  database: string
+  table_count: number
+}
+
 export interface UploadResult {
   session_id: string
   source_type: string
@@ -510,6 +520,32 @@ export function useDatagentra() {
     await fetchSchema()
   }, [fetchDataSources, fetchSchema])
 
+  const renameColumn = useCallback(async (sessionId: string, oldName: string, newName: string): Promise<UploadResult> => {
+    const res = await fetch(`${API_URL}/api/upload/rename-column`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ session_id: sessionId, old_name: oldName, new_name: newName }),
+    })
+    if (!res.ok) {
+      const err = await res.json()
+      throw new Error(err.detail || 'Rename failed')
+    }
+    return res.json()
+  }, [])
+
+  const dropColumn = useCallback(async (sessionId: string, columnName: string): Promise<UploadResult> => {
+    const res = await fetch(`${API_URL}/api/upload/drop-column`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ session_id: sessionId, column_name: columnName }),
+    })
+    if (!res.ok) {
+      const err = await res.json()
+      throw new Error(err.detail || 'Drop failed')
+    }
+    return res.json()
+  }, [])
+
   // ---------------------------------------------------------------------------
   // Switch data source
   // ---------------------------------------------------------------------------
@@ -530,6 +566,39 @@ export function useDatagentra() {
     await fetchSchema()
     await fetchDataSources()
   }, [fetchSchema, fetchDataSources])
+
+  const connectDatabase = useCallback(async (params: {
+    db_type: string
+    host: string
+    port: number
+    database: string
+    user: string
+    password: string
+    name?: string
+  }) => {
+    const res = await fetch(`${API_URL}/api/database/connect`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(params),
+    })
+    if (!res.ok) {
+      const err = await res.json()
+      throw new Error(err.detail || 'Connection failed')
+    }
+    const data = await res.json()
+    await fetchDataSources()
+    return data.connection as ExternalConnection
+  }, [fetchDataSources])
+
+  const deleteDatabaseConnection = useCallback(async (connId: string) => {
+    const res = await fetch(`${API_URL}/api/database/connections/${connId}`, { method: 'DELETE' })
+    if (!res.ok) {
+      const err = await res.json()
+      throw new Error(err.detail || 'Delete failed')
+    }
+    await fetchDataSources()
+    await fetchSchema()
+  }, [fetchDataSources, fetchSchema])
 
   return {
     // messages
@@ -553,7 +622,11 @@ export function useDatagentra() {
     uploadFile,
     fixUpload,
     confirmUpload,
+    renameColumn,
+    dropColumn,
     refreshSchema: fetchSchema,
+    connectDatabase,
+    deleteDatabaseConnection,
     // suggestions
     suggestions,
     fetchSuggestions,

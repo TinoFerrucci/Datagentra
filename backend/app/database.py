@@ -177,3 +177,81 @@ def reinitialize_engines(database_url: str) -> None:
     readwrite_engine = _make_engine(database_url)
     ReadOnlySession = sessionmaker(bind=readonly_engine, autocommit=False, autoflush=False)
     ReadWriteSession = sessionmaker(bind=readwrite_engine, autocommit=False, autoflush=False)
+
+
+# ---------------------------------------------------------------------------
+# External database connections (PostgreSQL / MySQL)
+# ---------------------------------------------------------------------------
+
+_external_connections: dict[str, dict] = {}
+
+
+def build_db_url(db_type: str, host: str, port: int, database: str, user: str, password: str) -> str:
+    if db_type == "postgres":
+        return f"postgresql+psycopg2://{user}:{password}@{host}:{port}/{database}"
+    if db_type == "mysql":
+        return f"mysql+pymysql://{user}:{password}@{host}:{port}/{database}"
+    raise ValueError(f"Unsupported db_type: {db_type}")
+
+
+def register_external_connection(conn_id: str, db_type: str, host: str, port: int,
+                                  database: str, user: str, password: str, name: str) -> dict:
+    url = build_db_url(db_type, host, port, database, user, password)
+    engine = _make_readonly_engine(url)
+
+    from sqlalchemy import inspect as sa_inspect
+    inspector = sa_inspect(engine)
+    tables = inspector.get_table_names()
+    table_count = len(tables)
+
+    conn_data = {
+        "id": conn_id,
+        "type": db_type,
+        "host": host,
+        "port": port,
+        "database": database,
+        "user": user,
+        "password": password,
+        "name": name or f"{db_type}://{host}:{port}/{database}",
+        "table_count": table_count,
+        "engine": engine,
+    }
+    _external_connections[conn_id] = conn_data
+    logger.info("External DB registered | id=%s | type=%s | host=%s | db=%s | tables=%d",
+                conn_id, db_type, host, database, table_count)
+    return {
+        "id": conn_id,
+        "type": db_type,
+        "name": conn_data["name"],
+        "host": host,
+        "port": port,
+        "database": database,
+        "table_count": table_count,
+    }
+
+
+def get_external_engine(conn_id: str) -> Engine | None:
+    conn = _external_connections.get(conn_id)
+    return conn["engine"] if conn else None
+
+
+def list_external_connections() -> list[dict]:
+    results = []
+    for conn_id, conn in _external_connections.items():
+        results.append({
+            "id": conn_id,
+            "type": conn["type"],
+            "name": conn["name"],
+            "host": conn["host"],
+            "port": conn["port"],
+            "database": conn["database"],
+            "table_count": conn["table_count"],
+        })
+    return results
+
+
+def remove_external_connection(conn_id: str) -> bool:
+    conn = _external_connections.pop(conn_id, None)
+    if conn and "engine" in conn:
+        conn["engine"].dispose()
+    return conn is not None

@@ -1,4 +1,4 @@
-"""Data loader: handles CSV and SQLite file uploads, validation, analysis, and correction."""
+"""Data loader: handles CSV, Excel and SQLite file uploads, validation, analysis, and correction."""
 from __future__ import annotations
 
 import io
@@ -139,16 +139,61 @@ def load_csv(content: bytes, filename: str) -> dict:
 
 
 def _build_response(session_data: dict) -> dict:
-    df = session_data["df"]
+    df = session_data.get("df")
+    source_type = session_data["source_type"]
+    if df is not None:
+        col_count = len(df.columns)
+    else:
+        col_count = session_data.get("table_count", 1)
     return {
         "session_id": session_data["session_id"],
-        "source_type": session_data["source_type"],
+        "source_type": source_type,
         "filename": session_data.get("filename", ""),
-        "table_count": len(df.columns) if session_data["source_type"] == "csv" else session_data.get("table_count", 1),
+        "table_count": col_count if source_type in ("csv", "xlsx") else session_data.get("table_count", 1),
         "schema_analysis": session_data["columns_info"],
         "preview_rows": session_data["preview_rows"],
         "columns_info": session_data["columns_info"],
     }
+
+
+# ---------------------------------------------------------------------------
+# Excel loader
+# ---------------------------------------------------------------------------
+
+def load_excel(content: bytes, filename: str) -> dict:
+    size_mb = len(content) / (1024 * 1024)
+    logger.info("Excel upload | filename=%s | size=%.2fMB", filename, size_mb)
+    if size_mb > MAX_FILE_SIZE_MB:
+        raise ValidationError(f"File exceeds maximum size of {MAX_FILE_SIZE_MB}MB (got {size_mb:.1f}MB).")
+
+    try:
+        df = pd.read_excel(io.BytesIO(content), engine="openpyxl")
+    except Exception as exc:
+        logger.error("Excel parse error | filename=%s | error=%s", filename, exc)
+        raise ValidationError(f"Could not parse Excel file: {exc}") from exc
+
+    if len(df.columns) > MAX_COLUMNS:
+        raise ValidationError(
+            f"Excel has {len(df.columns)} columns but maximum allowed is {MAX_COLUMNS}."
+        )
+
+    session_id = str(uuid.uuid4())
+    columns_info = _analyze_dataframe(df)
+    preview = df.head(10).fillna("").to_dict(orient="records")
+
+    session_data = {
+        "session_id": session_id,
+        "source_type": "xlsx",
+        "filename": filename,
+        "df": df,
+        "columns_info": columns_info,
+        "preview_rows": preview,
+        "table_name": Path(filename).stem.replace(" ", "_").replace("-", "_"),
+    }
+
+    set_session(session_id, session_data)
+    logger.info("Excel loaded | session=%s | rows=%d | cols=%d", session_id, len(df), len(df.columns))
+    return _build_response(session_data)
 
 
 # ---------------------------------------------------------------------------
@@ -248,8 +293,8 @@ def apply_correction(session_id: str, prompt: str) -> dict:
     if session is None:
         logger.warning("Correction failed: session not found | session=%s", session_id)
         raise ValidationError(f"Session '{session_id}' not found.")
-    if session["source_type"] != "csv":
-        raise ValidationError("Corrections are only supported for CSV sources.")
+    if session["source_type"] not in ("csv", "xlsx"):
+        raise ValidationError("Corrections are only supported for CSV and Excel sources.")
 
     df: pd.DataFrame = session["df"].copy()
     columns = list(df.columns)
@@ -337,8 +382,50 @@ JSON:"""
 # Persist CSV to SQLite for querying
 # ---------------------------------------------------------------------------
 
+def rename_column(session_id: str, old_name: str, new_name: str) -> dict:
+    session = get_session(session_id)
+    if session is None:
+        raise ValidationError(f"Session '{session_id}' not found.")
+    if session["source_type"] not in ("csv", "xlsx"):
+        raise ValidationError("Column rename is only supported for CSV and Excel sources.")
+
+    df: pd.DataFrame = session["df"]
+    matching = [c for c in df.columns if c == old_name]
+    if not matching:
+        raise ValidationError(f"Column '{old_name}' not found.")
+    df = df.rename(columns={old_name: new_name})
+
+    session["df"] = df
+    session["columns_info"] = _analyze_dataframe(df)
+    session["preview_rows"] = df.head(10).fillna("").to_dict(orient="records")
+    set_session(session_id, session)
+    logger.info("Column renamed | session=%s | %s -> %s", session_id, old_name, new_name)
+    return _build_response(session)
+
+
+def drop_column(session_id: str, column_name: str) -> dict:
+    session = get_session(session_id)
+    if session is None:
+        raise ValidationError(f"Session '{session_id}' not found.")
+    if session["source_type"] not in ("csv", "xlsx"):
+        raise ValidationError("Column drop is only supported for CSV and Excel sources.")
+
+    df: pd.DataFrame = session["df"]
+    matching = [c for c in df.columns if c == column_name]
+    if not matching:
+        raise ValidationError(f"Column '{column_name}' not found.")
+    df = df.drop(columns=matching)
+
+    session["df"] = df
+    session["columns_info"] = _analyze_dataframe(df)
+    session["preview_rows"] = df.head(10).fillna("").to_dict(orient="records")
+    set_session(session_id, session)
+    logger.info("Column dropped | session=%s | col=%s", session_id, column_name)
+    return _build_response(session)
+
+
 def persist_csv_session(session_id: str) -> str:
-    """Write CSV dataframe to an in-memory SQLite and return the database URL."""
+    """Write CSV/Excel dataframe to an in-memory SQLite and return the database URL."""
     session = get_session(session_id)
     if session is None:
         raise ValidationError(f"Session '{session_id}' not found.")
@@ -365,7 +452,7 @@ def get_engine_for_session(session_id: str):
     if session is None:
         return None
 
-    if session["source_type"] == "csv":
+    if session["source_type"] in ("csv", "xlsx"):
         db_url = persist_csv_session(session_id)
         if db_url.startswith("sqlite:///"):
             db_path = db_url.replace("sqlite:///", "")

@@ -1,7 +1,6 @@
 import { useState, useRef, useEffect } from 'react'
 import {
   Database,
-  Upload,
   ChevronLeft,
   ChevronRight,
   Moon,
@@ -21,13 +20,13 @@ import datagentraUrl from '../statics/datagentra.png'
 import { useDatagentra } from './hooks/useDatagentra'
 import { ChatInterface } from './components/ChatInterface'
 import { SchemaExplorer } from './components/SchemaExplorer'
-import { DataSourcePanel } from './components/DataSourcePanel'
 import { SetupWizard } from './components/SetupWizard'
 import { SettingsModal } from './components/SettingsModal'
+import { AddDataSourceModal } from './components/AddDataSourceModal'
 import { cn } from './lib/utils'
 import type { Conversation } from './hooks/useDatagentra'
 
-type RightPanel = 'schema' | 'upload' | 'sql'
+type RightPanel = 'schema' | 'sql'
 
 import type { ChatMessage } from './hooks/useDatagentra'
 
@@ -84,6 +83,7 @@ export default function App() {
   const [editingConvId, setEditingConvId] = useState<string | null>(null)
   const [editingTitle, setEditingTitle] = useState('')
   const [showSettings, setShowSettings] = useState(false)
+  const [showDBConnect, setShowDBConnect] = useState(false)
   const editInputRef = useRef<HTMLInputElement>(null)
 
   const {
@@ -106,6 +106,10 @@ export default function App() {
     fixUpload,
     confirmUpload,
     switchDataSource,
+    connectDatabase,
+    deleteDatabaseConnection,
+    renameColumn,
+    dropColumn,
     suggestions,
     fetchSuggestions,
   } = useDatagentra()
@@ -245,27 +249,49 @@ export default function App() {
 
           {/* Data sources */}
           <div className="border-t px-3 py-3 flex-shrink-0">
-            <p className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider px-1 mb-2">
-              Data Sources
-            </p>
+            <div className="flex items-center justify-between mb-2">
+              <p className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider px-1">
+                Data Sources
+              </p>
+              <button
+                onClick={() => setShowDBConnect(true)}
+                title="Connect database"
+                className="p-1 rounded-md hover:bg-muted text-muted-foreground hover:text-foreground transition-colors"
+              >
+                <Plus className="w-3.5 h-3.5" />
+              </button>
+            </div>
             <div className="space-y-0.5">
               {dataSources.map((source) => (
-                <button
+                <div
                   key={source.id}
-                  onClick={() => switchDataSource(source.id)}
-                  className={cn(
-                    'w-full flex items-center gap-2 px-2 py-1.5 rounded-md text-xs font-medium transition-colors text-left',
-                    source.active
-                      ? 'bg-teal-100 dark:bg-teal-900/40 text-teal-700 dark:text-teal-300'
-                      : 'text-muted-foreground hover:bg-muted hover:text-foreground'
-                  )}
+                  className="group relative flex items-center"
                 >
-                  <Database className="w-3.5 h-3.5 flex-shrink-0" />
-                  <span className="truncate">{source.name}</span>
-                  {source.active && (
-                    <span className="ml-auto w-1.5 h-1.5 rounded-full bg-teal-500 flex-shrink-0" />
+                  <button
+                    onClick={() => switchDataSource(source.id)}
+                    className={cn(
+                      'flex-1 flex items-center gap-2 px-2 py-1.5 rounded-md text-xs font-medium transition-colors text-left min-w-0',
+                      source.active
+                        ? 'bg-teal-100 dark:bg-teal-900/40 text-teal-700 dark:text-teal-300'
+                        : 'text-muted-foreground hover:bg-muted hover:text-foreground'
+                    )}
+                  >
+                    <Database className="w-3.5 h-3.5 flex-shrink-0" />
+                    <span className="truncate">{source.name}</span>
+                    {source.active && (
+                      <span className="ml-auto w-1.5 h-1.5 rounded-full bg-teal-500 flex-shrink-0" />
+                    )}
+                  </button>
+                  {(source.type === 'postgres' || source.type === 'mysql') && (
+                    <button
+                      onClick={() => deleteDatabaseConnection(source.id)}
+                      title="Remove connection"
+                      className="absolute right-1 hidden group-hover:flex p-0.5 rounded hover:bg-red-100 dark:hover:bg-red-900/30 text-muted-foreground hover:text-red-600"
+                    >
+                      <Trash2 className="w-3 h-3" />
+                    </button>
                   )}
-                </button>
+                </div>
               ))}
             </div>
           </div>
@@ -330,7 +356,7 @@ export default function App() {
       </main>
 
       {/* ================================================================
-          RIGHT PANEL — Schema Explorer / Upload
+          RIGHT PANEL — Schema Explorer / SQL
       ================================================================ */}
       <aside
         className={cn(
@@ -345,7 +371,6 @@ export default function App() {
               {(
                 [
                   { id: 'schema', icon: <Database className="w-3.5 h-3.5" />, label: 'Schema' },
-                  { id: 'upload', icon: <Upload className="w-3.5 h-3.5" />, label: 'Upload' },
                   { id: 'sql',    icon: <Code2 className="w-3.5 h-3.5" />,   label: 'SQL' },
                 ] as const
               ).map(({ id, icon, label }) => (
@@ -384,13 +409,6 @@ export default function App() {
                 }}
               />
             )}
-            {rightPanel === 'upload' && (
-              <DataSourcePanel
-                onUpload={uploadFile}
-                onFix={fixUpload}
-                onConfirm={confirmUpload}
-              />
-            )}
             {rightPanel === 'sql' && (
               <SqlHistoryPanel messages={messages} />
             )}
@@ -409,6 +427,19 @@ export default function App() {
           current={setupStatus}
           onSave={saveSetup}
           onClose={() => setShowSettings(false)}
+        />
+      )}
+
+      {/* Add data source modal */}
+      {showDBConnect && (
+        <AddDataSourceModal
+          onClose={() => setShowDBConnect(false)}
+          onConnect={connectDatabase}
+          onSwitchSource={switchDataSource}
+          onUpload={uploadFile}
+          onConfirm={confirmUpload}
+          onRenameColumn={renameColumn}
+          onDropColumn={dropColumn}
         />
       )}
     </div>
