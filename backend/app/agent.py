@@ -199,7 +199,8 @@ Decision guidelines:
 
 row_limit:
 - Default to {DEFAULT_ROW_LIMIT}. Keep results compact — users rarely need hundreds of rows.
-- Use 1 for single-value aggregates ("total", "promedio", "cuántos", "how many", "average").
+- Use 1 ONLY for single-value aggregates where the SQL itself computes a total, average or count (e.g. "total revenue", "average price", "how many orders"). The result must be 1 row × 1 numeric cell.
+- NEVER use 1 for rankings, top-N, superlatives ("el más vendido", "the best seller", "cuál es el mayor"), or questions that compare categories. Always return enough rows to show context (minimum 5).
 - Use 8–12 for pie charts (composition or breakdown questions).
 - Use {DEFAULT_ROW_LIMIT} for rankings or top-N questions.
 - Use up to 25 for distributions or comparisons spanning many categories.
@@ -270,6 +271,14 @@ def _generate_sql(
         else ""
     )
 
+    context_rule = (
+        "- IMPORTANT: When the question asks for 'the most', 'the best', 'the top', or any superlative "
+        "about a category, the query MUST return enough rows to show context (at least 5-10). "
+        "Never use LIMIT 1 for ranking/comparison questions — the user needs to see the leader relative to others."
+        if intent in ("ranking", "comparison", "distribution")
+        else ""
+    )
+
     prompt = f"""You are a {db_type} expert. Given the following database schema:
 
 {ddl}
@@ -288,6 +297,7 @@ Rules:
 - If the question refers to previous results (e.g. "those same products", "the top one"), use the context above.
 {limit_rule}
 {order_rule}
+{context_rule}
 
 SQL:"""
     logger.info("Generating SQL | db=%s | question=%s | limit=%s", db_type, question[:120], row_limit)
@@ -370,7 +380,7 @@ Write a structured analytical report in markdown. Follow this format exactly:
 - **[Insight 3]**: [value and context]
 [add up to 2 more bullets if the data warrants it]
 
-Analytical framework — cover the angles relevant to the data:
+Analytical framework — cover ONLY the angles that make sense for the available data:
 - DISTRIBUTION: Report concentration (top N items account for X% of total), identify the long tail, note skewness or uniformity.
 - RANKING: Call out the clear leader and runner-up, the gap between them, and anything below average.
 - TREND: Identify direction (growth/decline), magnitude, inflection points, and velocity of change.
@@ -383,7 +393,8 @@ Strict rules:
 - Each bullet must address a DISTINCT analytical angle — no repetition.
 - Keep each bullet to one concise sentence.
 - Do NOT restate the question. Do NOT say "the query returned" or "the data shows".
-- Do NOT add headers, sections, or markdown beyond the format above."""
+- Do NOT add headers, sections, or markdown beyond the format above.
+- CRITICAL: If the result has very few rows (1-2 rows), do NOT compute percentages of the returned subset as if they represent the full dataset. A single row showing "Electronics: 11" does NOT mean Electronics is 100% of all sales — it means only the top result was returned. Report absolute numbers and say "among the top results" or "of the data shown". Never claim a subset represents the whole when the query was limited."""
 
 
 def _summarize(question: str, columns: list[str], rows: list[list], sql: str) -> str:
